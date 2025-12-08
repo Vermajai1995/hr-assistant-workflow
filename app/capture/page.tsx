@@ -153,7 +153,7 @@ export default function CapturePage() {
     }
     setIsExtracting(true);
     setError(null);
-    setStatus("Extracting PII…");
+    setStatus("Extracting structured HR details…");
 
     try {
       const res = await fetch("/api/extract-pii", {
@@ -171,8 +171,8 @@ export default function CapturePage() {
       setPiiRows(data.rows || []);
       setStatus(
         data.rows?.length
-          ? `Found ${data.rows.length} PII items.`
-          : "No PII found in this conversation."
+          ? `Found ${data.rows.length} key fields for this requirement.`
+          : "No useful fields found in this conversation."
       );
       setActiveTab("pii");
     } catch (err: any) {
@@ -232,7 +232,7 @@ export default function CapturePage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "pii-data.csv";
+    link.download = "hr-requirement-fields.csv";
     link.click();
     URL.revokeObjectURL(url);
     setStatus("CSV exported.");
@@ -255,27 +255,36 @@ export default function CapturePage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
-      {/* Top controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+      {/* Top heading + actions card */}
+      <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between shadow-lg shadow-emerald-500/10">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold">Capture conversation</h1>
-          <p className="text-xs text-slate-400">
-            Start listening or paste an existing chat / call transcript.
+          <h1 className="text-lg sm:text-xl font-semibold">
+            Capture hiring conversations
+          </h1>
+          <p className="text-[11px] sm:text-xs text-slate-300">
+            Speak with clients or agencies. We&apos;ll turn it into a structured HR
+            requirement table.
           </p>
-          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <span className="text-slate-500">Language mode:</span>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-300 pt-1">
+            <span className="text-slate-400">Language mode:</span>
             <select
               value={lang}
               onChange={(e) =>
                 setLang(e.target.value as "hi-IN" | "en-IN" | "en-US")
               }
               disabled={isListening}
-              className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
             >
               <option value="hi-IN">Hinglish / Hindi (hi-IN)</option>
               <option value="en-IN">English (India - en-IN)</option>
               <option value="en-US">English (US - en-US)</option>
             </select>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-[2px] text-[10px] text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Live speech
+            </span>
           </div>
         </div>
 
@@ -283,148 +292,150 @@ export default function CapturePage() {
           <button
             onClick={startListening}
             disabled={!isSupported || isListening}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-900 shadow shadow-emerald-500/40 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
           >
             <span className="h-2 w-2 rounded-full bg-emerald-900 border border-emerald-300" />
-            Start Listening
+            {isSupported ? "Start Listening" : "Not supported"}
           </button>
           <button
             onClick={stopListening}
             disabled={!isListening}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
           >
             ⏹ Stop
           </button>
           <button
             onClick={handleReset}
             disabled={isBusy || (!transcript && !piiRows.length)}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 border border-slate-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 border border-slate-700 disabled:opacity-50"
           >
-            ↺ Reset
+            ↺ Clear
           </button>
         </div>
       </div>
 
       {/* Status line */}
-      <div className="text-xs text-slate-400 flex items-center gap-2">
+      <div className="flex items-center gap-2 text-xs text-slate-200">
         <span
           className={`inline-flex h-2 w-2 rounded-full ${
             isListening
-              ? "bg-emerald-400"
+              ? "bg-emerald-400 shadow-[0_0_0_4px] shadow-emerald-500/20"
               : isExtracting
-              ? "bg-amber-400"
+              ? "bg-amber-400 shadow-[0_0_0_4px] shadow-amber-500/20"
               : "bg-slate-500"
           }`}
         />
         <span>{status}</span>
         {isExtracting && (
-          <span className="text-[10px] text-slate-500">
-            (PII extraction in progress…)
+          <span className="text-[10px] text-slate-400">
+            (Parsing roles, openings, budget, experience…)
           </span>
         )}
       </div>
 
       {error && (
-        <div className="text-xs text-red-400 border border-red-700/60 bg-red-950/40 rounded-lg px-3 py-2">
+        <div className="text-xs text-red-300 border border-red-700/70 bg-red-950/50 rounded-xl px-3 py-2">
           {error}
         </div>
       )}
 
-      {/* Tabs + content */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-black/40 overflow-hidden">
+      {/* Main card: tabs + content */}
+      <div className="rounded-3xl border border-slate-800/90 bg-slate-950/70 backdrop-blur-xl shadow-xl shadow-black/40 overflow-hidden">
         {/* Tabs */}
-        <div className="flex border-b border-slate-800 bg-slate-950/60">
+        <div className="flex border-b border-slate-800 bg-slate-950/80">
           <button
             onClick={() => handleTabChange("transcript")}
-            className={`flex-1 px-4 py-2 text-xs font-medium ${
+            className={`flex-1 px-4 py-2.5 text-xs font-medium transition-colors ${
               activeTab === "transcript"
                 ? "bg-slate-900 text-emerald-300 border-b-2 border-emerald-400"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-400 hover:text-slate-100"
             }`}
           >
             Transcript
           </button>
           <button
             onClick={() => handleTabChange("pii")}
-            className={`flex-1 px-4 py-2 text-xs font-medium ${
+            className={`flex-1 px-4 py-2.5 text-xs font-medium transition-colors ${
               activeTab === "pii"
                 ? "bg-slate-900 text-emerald-300 border-b-2 border-emerald-400"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-400 hover:text-slate-100"
             }`}
             disabled={isListening}
           >
-            PII Table
+            HR fields table
           </button>
         </div>
 
         {/* Body */}
         <div className="p-4 sm:p-6">
           {activeTab === "transcript" && (
-            <div className="space-y-3">
-              <label className="flex justify-between items-center text-xs text-slate-400">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center text-xs text-slate-400">
                 <span>Conversation text (auto-filled or paste your own)</span>
-                <span className="text-[10px]">
+                <span className="text-[10px] text-slate-500">
                   {transcript.length
                     ? `${transcript.length} characters`
                     : "empty"}
                 </span>
-              </label>
+              </div>
+
               <textarea
-                className="w-full min-h-[180px] rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-500/70 focus:border-emerald-500/90 resize-y"
-                placeholder="Speak using mic or paste any conversation here..."
+                className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
+                placeholder="Speak using mic or paste the HR conversation here (name, company, openings, role, experience, budget, etc.)…"
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 readOnly={isListening}
               />
 
-              <div className="flex flex-wrap gap-2 justify-between items-center">
+              <div className="flex flex-wrap gap-3 justify-between items-center">
                 <button
                   onClick={() => handleExtractPII(false)}
                   disabled={!transcript.trim() || isBusy}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-900 shadow shadow-emerald-500/40 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
                 >
-                  🔄 Sync &amp; Extract PII
+                  🔄 Sync &amp; extract HR fields
                 </button>
-                <p className="text-[10px] text-slate-500">
-                  Tip: You can paste Zoom/Meet chat, WhatsApp export, call
-                  transcript, etc.
+                <p className="text-[10px] text-slate-500 max-w-xs text-right">
+                  Tip: You can also paste Zoom/Meet recording transcript, WhatsApp
+                  export, or notes from a phone call.
                 </p>
               </div>
             </div>
           )}
 
           {activeTab === "pii" && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
-                  <h2 className="text-sm font-medium">Detected PII</h2>
+                  <h2 className="text-sm font-semibold text-slate-100">
+                    Structured requirement fields
+                  </h2>
                   <p className="text-[11px] text-slate-400">
-                    {piiRows.length
-                      ? "Review carefully before sharing or storing."
-                      : "No PII detected yet. Try syncing a transcript."}
+                    Use this table to update your ATS, share with team, or send
+                    back to client.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={handleCopyAsMarkdown}
                     disabled={!piiRows.length || isBusy}
-                    className="rounded-xl bg-slate-800 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                    className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
                   >
                     Copy as table
                   </button>
                   <button
                     onClick={handleExportCSV}
                     disabled={!piiRows.length || isBusy}
-                    className="rounded-xl bg-slate-800 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                    className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
                   >
                     Export CSV
                   </button>
                 </div>
               </div>
 
-              <div className="overflow-x-auto border border-slate-800 rounded-xl">
+              <div className="overflow-x-auto border border-slate-800/80 rounded-2xl bg-slate-950/70">
                 <table className="min-w-full text-[11px]">
-                  <thead className="bg-slate-900/80 border-b border-slate-800">
+                  <thead className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border-b border-slate-800">
                     <tr>
                       <th className="px-2 py-2 text-left text-slate-400 font-medium">
                         #
@@ -451,16 +462,17 @@ export default function CapturePage() {
                       <tr>
                         <td
                           colSpan={6}
-                          className="px-3 py-4 text-center text-slate-500"
+                          className="px-3 py-5 text-center text-slate-500"
                         >
-                          No PII rows yet. Extract using the transcript tab.
+                          No HR fields detected yet. Extract using the transcript
+                          tab.
                         </td>
                       </tr>
                     ) : (
                       piiRows.map((row, idx) => (
                         <tr
                           key={idx}
-                          className="border-t border-slate-800/80 hover:bg-slate-900/60"
+                          className="border-t border-slate-800/70 odd:bg-slate-950/70 even:bg-slate-950/40 hover:bg-slate-900/60 transition-colors"
                         >
                           <td className="px-2 py-2 align-top text-slate-500">
                             {idx + 1}
@@ -471,8 +483,10 @@ export default function CapturePage() {
                           <td className="px-2 py-2 align-top text-slate-100">
                             {row.value}
                           </td>
-                          <td className="px-2 py-2 align-top text-slate-300">
-                            {row.category}
+                          <td className="px-2 py-2 align-top">
+                            <span className={categoryBadgeClass(row.category)}>
+                              {row.category || "—"}
+                            </span>
                           </td>
                           <td className="px-2 py-2 align-top text-slate-300">
                             {row.confidence !== undefined
@@ -513,4 +527,23 @@ function csvEscape(text: string): string {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
+}
+
+function categoryBadgeClass(category: string): string {
+  const base =
+    "inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] capitalize";
+  switch (category?.toLowerCase()) {
+    case "client":
+      return `${base} bg-emerald-500/10 border-emerald-400/60 text-emerald-200`;
+    case "role":
+      return `${base} bg-cyan-500/10 border-cyan-400/60 text-cyan-200`;
+    case "openings":
+      return `${base} bg-indigo-500/10 border-indigo-400/60 text-indigo-200`;
+    case "budget":
+      return `${base} bg-amber-500/10 border-amber-400/60 text-amber-200`;
+    case "location":
+      return `${base} bg-fuchsia-500/10 border-fuchsia-400/60 text-fuchsia-200`;
+    default:
+      return `${base} bg-slate-700/40 border-slate-500/80 text-slate-100`;
+  }
 }
