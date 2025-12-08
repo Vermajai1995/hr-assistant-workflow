@@ -1,7 +1,7 @@
 // app/capture/page.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type PiiRow = {
   field: string;
@@ -48,6 +48,27 @@ declare global {
   }
 }
 
+// Preferred HR field order for display & brief
+const FIELD_ORDER: string[] = [
+  "Client Name",
+  "Client Company / Agency",
+  "Client Location / City",
+  "Work Location",
+  "Position Title",
+  "Total Openings",
+  "Experience Level",
+  "Experience Required (years)",
+  "Work Mode",
+  "Required Skills / Tech Stack",
+  "Budget Range (INR/month)",
+  "Minimum Budget (INR/month)",
+  "Maximum Budget (INR/month)",
+  "Notice Period / Joining Timeline",
+  "Contract Type",
+  "Shift Timing",
+  "Other Notes",
+];
+
 export default function CapturePage() {
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -58,8 +79,29 @@ export default function CapturePage() {
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
+  const [hrBrief, setHrBrief] = useState<string>("");
+  const [briefCopied, setBriefCopied] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
+
+  // Sorted rows by preferred HR order
+  const sortedRows = useMemo(() => {
+    if (!piiRows.length) return [];
+
+    return [...piiRows].sort((a, b) => {
+      const aIdx = FIELD_ORDER.indexOf(a.field);
+      const bIdx = FIELD_ORDER.indexOf(b.field);
+
+      const aScore = aIdx === -1 ? FIELD_ORDER.length + 1 : aIdx;
+      const bScore = bIdx === -1 ? FIELD_ORDER.length + 1 : bIdx;
+
+      if (aScore === bScore) {
+        // fallback: keep original relative order
+        return piiRows.indexOf(a) - piiRows.indexOf(b);
+      }
+      return aScore - bScore;
+    });
+  }, [piiRows]);
 
   // Init / re-init speech recognition on language change
   useEffect(() => {
@@ -119,7 +161,8 @@ export default function CapturePage() {
 
   const startListening = () => {
     if (!recognitionRef.current) return;
-    setPiiRows([]); // clear previous
+    setPiiRows([]);
+    setHrBrief("");
     try {
       recognitionRef.current.lang = lang;
       recognitionRef.current.start();
@@ -134,7 +177,6 @@ export default function CapturePage() {
     try {
       recognitionRef.current.stop();
       setStatus("Stopping…");
-      // Thoda delay so transcript settle ho jaye, phir auto extract
       setTimeout(() => {
         if (transcript.trim().length > 0) {
           handleExtractPII(true);
@@ -154,6 +196,8 @@ export default function CapturePage() {
     setIsExtracting(true);
     setError(null);
     setStatus("Extracting structured HR details…");
+    setHrBrief("");
+    setBriefCopied(false);
 
     try {
       const res = await fetch("/api/extract-pii", {
@@ -185,13 +229,13 @@ export default function CapturePage() {
   };
 
   const handleCopyAsMarkdown = async () => {
-    if (!piiRows.length) return;
+    if (!sortedRows.length) return;
 
     const header =
       "| # | Field | Value | Category | Confidence | Snippet |\n" +
       "|---|-------|-------|----------|------------|---------|\n";
 
-    const rowsStr = piiRows
+    const rowsStr = sortedRows
       .map((row, idx) => {
         const conf = row.confidence?.toFixed(2) ?? "";
         const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
@@ -212,11 +256,11 @@ export default function CapturePage() {
   };
 
   const handleExportCSV = () => {
-    if (!piiRows.length) return;
+    if (!sortedRows.length) return;
 
     let csv = "Index,Field,Value,Category,Confidence,Snippet\n";
 
-    piiRows.forEach((row, idx) => {
+    sortedRows.forEach((row, idx) => {
       const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
       csv += [
         idx + 1,
@@ -238,6 +282,98 @@ export default function CapturePage() {
     setStatus("CSV exported.");
   };
 
+  const handleGenerateBrief = () => {
+    if (!sortedRows.length) {
+      setError("Extract fields first, then generate the HR brief.");
+      return;
+    }
+    setError(null);
+    setBriefCopied(false);
+
+    const get = (name: string): string | undefined =>
+      sortedRows.find((r) => r.field === name)?.value;
+
+    const clientName = get("Client Name");
+    const clientCompany = get("Client Company / Agency");
+    const clientCity =
+      get("Client Location / City") || get("Work Location") || undefined;
+    const position = get("Position Title");
+    const openings = get("Total Openings");
+    const expYears = get("Experience Required (years)");
+    const expLevel = get("Experience Level");
+    const budgetRange = get("Budget Range (INR/month)");
+    const workMode = get("Work Mode");
+    const skills = get("Required Skills / Tech Stack");
+    const notice = get("Notice Period / Joining Timeline");
+    const contractType = get("Contract Type");
+    const shift = get("Shift Timing");
+
+    const lines: string[] = [];
+
+    // Title line
+    const titleRole = position || "Role";
+    const titleLoc = clientCity ? ` (${clientCity})` : "";
+    lines.push(`Hiring Requirement – ${titleRole}${titleLoc}`);
+    lines.push("------------------------------------------------");
+    lines.push("");
+
+    if (clientName || clientCompany) {
+      const parts = [clientName, clientCompany].filter(Boolean).join(" | ");
+      lines.push(`Client: ${parts}`);
+    }
+    if (clientCity) {
+      lines.push(`Location: ${clientCity}`);
+    }
+    if (openings) {
+      lines.push(`Total Openings: ${openings}`);
+    }
+    if (expYears || expLevel) {
+      const expParts = [
+        expLevel,
+        expYears ? `${expYears} years` : undefined,
+      ].filter(Boolean);
+      if (expParts.length) lines.push(`Experience: ${expParts.join(" · ")}`);
+    }
+    if (budgetRange) {
+      lines.push(`Budget: ${budgetRange} (per month, approx.)`);
+    }
+    if (workMode) {
+      lines.push(`Work Mode: ${workMode}`);
+    }
+    if (contractType) {
+      lines.push(`Type: ${contractType}`);
+    }
+    if (shift) {
+      lines.push(`Shift: ${shift}`);
+    }
+
+    if (skills) {
+      lines.push("");
+      lines.push(`Key skills / tech stack: ${skills}`);
+    }
+
+    lines.push("");
+    lines.push("All captured details:");
+    sortedRows.forEach((row) => {
+      lines.push(`- ${row.field}: ${row.value}`);
+    });
+
+    const briefText = lines.join("\n");
+    setHrBrief(briefText);
+    setStatus("HR brief generated. You can copy it below.");
+  };
+
+  const handleCopyBrief = async () => {
+    if (!hrBrief.trim()) return;
+    try {
+      await navigator.clipboard.writeText(hrBrief);
+      setBriefCopied(true);
+      setStatus("HR brief copied to clipboard.");
+    } catch (e) {
+      setError("Failed to copy HR brief.");
+    }
+  };
+
   const handleTabChange = (tab: TabId) => {
     if (isListening) return; // optional: disable switching while listening
     setActiveTab(tab);
@@ -249,13 +385,14 @@ export default function CapturePage() {
     setError(null);
     setStatus("Idle");
     setActiveTab("transcript");
+    setHrBrief("");
+    setBriefCopied(false);
   };
 
   const isBusy = isListening || isExtracting;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
-
       {/* Top heading + actions card */}
       <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between shadow-lg shadow-emerald-500/10">
         <div className="space-y-1">
@@ -331,6 +468,11 @@ export default function CapturePage() {
             (Parsing roles, openings, budget, experience…)
           </span>
         )}
+        {briefCopied && (
+          <span className="text-[10px] text-emerald-300">
+            HR brief copied ✔
+          </span>
+        )}
       </div>
 
       {error && (
@@ -396,8 +538,8 @@ export default function CapturePage() {
                   🔄 Sync &amp; extract HR fields
                 </button>
                 <p className="text-[10px] text-slate-500 max-w-xs text-right">
-                  Tip: You can also paste Zoom/Meet recording transcript, WhatsApp
-                  export, or notes from a phone call.
+                  Tip: You can also paste Zoom/Meet recording transcript,
+                  WhatsApp export, or notes from a phone call.
                 </p>
               </div>
             </div>
@@ -418,17 +560,24 @@ export default function CapturePage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={handleCopyAsMarkdown}
-                    disabled={!piiRows.length || isBusy}
+                    disabled={!sortedRows.length || isBusy}
                     className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
                   >
                     Copy as table
                   </button>
                   <button
                     onClick={handleExportCSV}
-                    disabled={!piiRows.length || isBusy}
+                    disabled={!sortedRows.length || isBusy}
                     className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
                   >
                     Export CSV
+                  </button>
+                  <button
+                    onClick={handleGenerateBrief}
+                    disabled={!sortedRows.length || isBusy}
+                    className="rounded-full bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-emerald-400/80 disabled:opacity-50"
+                  >
+                    ✉ Generate HR brief
                   </button>
                 </div>
               </div>
@@ -458,18 +607,18 @@ export default function CapturePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {piiRows.length === 0 ? (
+                    {sortedRows.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
                           className="px-3 py-5 text-center text-slate-500"
                         >
-                          No HR fields detected yet. Extract using the transcript
-                          tab.
+                          No HR fields detected yet. Extract using the
+                          transcript tab.
                         </td>
                       </tr>
                     ) : (
-                      piiRows.map((row, idx) => (
+                      sortedRows.map((row, idx) => (
                         <tr
                           key={idx}
                           className="border-t border-slate-800/70 odd:bg-slate-950/70 even:bg-slate-950/40 hover:bg-slate-900/60 transition-colors"
@@ -504,6 +653,35 @@ export default function CapturePage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* HR brief preview */}
+              {hrBrief && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-100">
+                        HR email / notes template
+                      </h3>
+                      <p className="text-[10px] text-slate-400">
+                        Copy & paste directly into email, ATS, or your notes.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleCopyBrief}
+                      disabled={!hrBrief.trim()}
+                      className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                    >
+                      Copy brief
+                    </button>
+                  </div>
+
+                  <textarea
+                    className="w-full min-h-[140px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                    value={hrBrief}
+                    readOnly
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
