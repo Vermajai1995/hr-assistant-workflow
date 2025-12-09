@@ -91,6 +91,9 @@ const CORE_FIELDS: string[] = [
 ];
 
 export default function CapturePage() {
+  // Hydration fix: only render full UI after mount
+  const [mounted, setMounted] = useState(false);
+
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
@@ -109,7 +112,11 @@ export default function CapturePage() {
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
 
-  // Helpers
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Sorted rows helpers
   const sortRows = (raw: PiiRow[]): PiiRowExt[] => {
     const withId: PiiRowExt[] = raw.map((r, i) => ({
       ...r,
@@ -150,6 +157,8 @@ export default function CapturePage() {
 
   // Init / re-init speech recognition on language change
   useEffect(() => {
+    if (!mounted) return;
+
     if (typeof window === "undefined") return;
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -202,7 +211,7 @@ export default function CapturePage() {
         // ignore
       }
     };
-  }, [lang, isListening]);
+  }, [lang, isListening, mounted]);
 
   const startListening = () => {
     if (!recognitionRef.current) return;
@@ -633,6 +642,15 @@ export default function CapturePage() {
 
   const isBusy = isListening || isExtracting;
 
+  // Hydration-safe: show simple loading before client mount
+  if (!mounted) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-20 text-center text-xs text-slate-400">
+        Loading interface…
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
       {/* Top heading + actions card */}
@@ -838,7 +856,9 @@ export default function CapturePage() {
                 <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
-                    style={{ width: `${completeness.percent}%` }}
+                    style={{
+                      width: `${completeness.percent}%`,
+                    }}
                   />
                 </div>
                 {completeness.missing.length > 0 && (
@@ -1041,7 +1061,6 @@ export default function CapturePage() {
                           Short job description
                         </h4>
                       </div>
-                      {/* reuse brief copy button if needed manually */}
                     </div>
                     <textarea
                       className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
