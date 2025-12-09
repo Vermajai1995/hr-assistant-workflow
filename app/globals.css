@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------
+   Base Theme Variables
+------------------------------------------------------------------ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -12,6 +15,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Auto-detect dark mode (default Next.js behavior) */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -19,14 +23,9 @@
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-/* app/globals.css */
-
+/* ------------------------------------------------------------------
+   Base Reset
+------------------------------------------------------------------ */
 *,
 *::before,
 *::after {
@@ -40,6 +39,8 @@ body {
 }
 
 body {
+  background: var(--background);
+  color: var(--foreground);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 }
@@ -49,7 +50,10 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* Theme variables (used by JS theme switcher) */
+/* ------------------------------------------------------------------
+   MANUAL THEME OVERRIDES (Light / Dark Switch)
+------------------------------------------------------------------ */
+
 :root[data-theme="light"] {
   --background: #f5f7fa;
   --foreground: #0a0a0a;
@@ -60,70 +64,65 @@ button:disabled {
   --foreground: #ededed;
 }
 
-/* ---------------------------
-   LIGHT THEME UI OVERRIDES
-   --------------------------- */
+/* ------------------------------------------------------------------
+   LIGHT THEME FIXES (Better contrast + readable UI)
+------------------------------------------------------------------ */
 
-/* Overall page background + text */
-html[data-theme="light"] body {
-  background: #f5f7fb;
-  color: #0f172a;
+/* 1) Light mode — table row backgrounds */
+html[data-theme="light"] .odd\:bg-slate-950\/70,
+html[data-theme="light"] .even\:bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/70 {
+  background-color: #eef1f5 !important; /* clean light grey */
 }
 
-/* Dark cards → white cards in light mode */
-html[data-theme="light"] .bg-slate-900,
-html[data-theme="light"] .bg-slate-900\/60,
-html[data-theme="light"] .bg-slate-950\/70,
-html[data-theme="light"] .bg-slate-950\/80,
-html[data-theme="light"] .bg-slate-950\/90 {
-  background-color: #ffffff;
+/* 2) Light mode — darken all low-contrast text */
+html[data-theme="light"] .text-slate-300 {
+  color: #1f2937 !important; /* darker slate */
 }
 
-/* Borders a bit lighter in light theme */
-html[data-theme="light"] .border-slate-800,
-html[data-theme="light"] .border-slate-800\/80,
-html[data-theme="light"] .border-slate-800\/90,
-html[data-theme="light"] .border-slate-700,
-html[data-theme="light"] .border-slate-700\/70 {
-  border-color: #d1d5db;
-}
-
-/* Text inside dark components → darker text in light mode */
-/* Text contrast fix for light mode */
 html[data-theme="light"] .text-slate-400,
 html[data-theme="light"] .text-slate-500,
 html[data-theme="light"] .text-slate-600 {
-  color: #111827; /* very dark navy */
+  color: #111827 !important; /* near-black for visibility */
 }
 
-/* Small helper: light-mode labels inside cards should still look soft but readable */
-html[data-theme="light"] .text-slate-300 {
-  color: #1f2933;
-}
-
-
-/* Textareas / inputs background in light theme */
-html[data-theme="light"] textarea.bg-slate-950\/80,
-html[data-theme="light"] textarea.bg-slate-950\/90,
-html[data-theme="light"] input.bg-slate-950\/80 {
-  background-color: #f9fafb;
-  color: #0f172a;
-}
-
-/* Small status pills etc should stay readable */
-html[data-theme="light"] .bg-emerald-500\/10,
-html[data-theme="light"] .bg-slate-900\/80 {
-  background-color: #e0fbea;
-}
-
-/* Table rows background in light theme – clearer grey */
-html[data-theme="light"] .odd\:bg-slate-950\/70,
-html[data-theme="light"] .even\:bg-slate-950\/40,
-html[data-theme="light"] .bg-slate-950\/40 {
-  background-color: #f3f4f6; /* light grey */
-}
+/* 3) Light mode — snippet column fix */
 html[data-theme="light"] td.text-slate-400,
 html[data-theme="light"] td .text-slate-400 {
-  color: #111827;
+  color: #111827 !important;
 }
 
+/* 4) Light mode — card background cleanup */
+html[data-theme="light"] .bg-slate-900\/60,
+html[data-theme="light"] .bg-slate-900\/80,
+html[data-theme="light"] .bg-slate-950\/60,
+html[data-theme="light"] .bg-slate-950\/70 {
+  background-color: #ffffff !important;
+  backdrop-filter: none !important;
+}
+
+/* 5) Light mode — borders softened */
+html[data-theme="light"] .border-slate-800,
+html[data-theme="light"] .border-slate-800\/70,
+html[data-theme="light"] .border-slate-800\/80,
+html[data-theme="light"] .border-slate-700 {
+  border-color: #d1d5db !important; /* light grey border */
+}
+
+/* 6) Light mode — tabs background fix */
+html[data-theme="light"] .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+/* 7) Light mode — input fields contrast boost */
+html[data-theme="light"] input,
+html[data-theme="light"] textarea {
+  background-color: #f9fafb !important;
+  border-color: #d1d5db !important;
+  color: #111827 !important;
+}
+
+/* ------------------------------------------------------------------
+   Dark theme stays untouched (Tailwind handles it)
+------------------------------------------------------------------ */
