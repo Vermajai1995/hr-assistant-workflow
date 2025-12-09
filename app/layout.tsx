@@ -3,6 +3,7 @@ import "./globals.css";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "Speech → PII Extractor | Jai Patel",
@@ -41,7 +42,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </header>
 
         {/* MAIN */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">{children}
+
+        {/* Feedback Widget Loader */}
+        <Script
+  src="https://feedback-jai-patel.vercel.app/widget.js?from=AI%20Resume%20Builder"
+  strategy="afterInteractive"
+/>
+        </main>
 
         {/* FOOTER */}
         <footer className="border-t border-slate-800 text-xs text-slate-500 py-3 text-center">

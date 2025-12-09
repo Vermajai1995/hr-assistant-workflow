@@ -25,7 +25,6 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-
 /* app/globals.css */
 
 *,
@@ -50,5 +49,62 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* Simple utility helpers if Tailwind is not present – 
-   but tum already Tailwind use karte ho, so main mainly classes se kaam kar raha hoon */
+/* Theme variables (used by JS theme switcher) */
+:root[data-theme="light"] {
+  --background: #f5f7fa;
+  --foreground: #0a0a0a;
+}
+
+:root[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+/* ---------------------------
+   LIGHT THEME UI OVERRIDES
+   --------------------------- */
+
+/* Overall page background + text */
+html[data-theme="light"] body {
+  background: #f5f7fb;
+  color: #0f172a;
+}
+
+/* Dark cards → white cards in light mode */
+html[data-theme="light"] .bg-slate-900,
+html[data-theme="light"] .bg-slate-900\/60,
+html[data-theme="light"] .bg-slate-950\/70,
+html[data-theme="light"] .bg-slate-950\/80,
+html[data-theme="light"] .bg-slate-950\/90 {
+  background-color: #ffffff;
+}
+
+/* Borders a bit lighter in light theme */
+html[data-theme="light"] .border-slate-800,
+html[data-theme="light"] .border-slate-800\/80,
+html[data-theme="light"] .border-slate-800\/90,
+html[data-theme="light"] .border-slate-700,
+html[data-theme="light"] .border-slate-700\/70 {
+  border-color: #d1d5db;
+}
+
+/* Text inside dark components → darker text in light mode */
+html[data-theme="light"] .text-slate-100,
+html[data-theme="light"] .text-slate-200,
+html[data-theme="light"] .text-slate-300 {
+  color: #0f172a;
+}
+
+/* Textareas / inputs background in light theme */
+html[data-theme="light"] textarea.bg-slate-950\/80,
+html[data-theme="light"] textarea.bg-slate-950\/90,
+html[data-theme="light"] input.bg-slate-950\/80 {
+  background-color: #f9fafb;
+  color: #0f172a;
+}
+
+/* Small status pills etc should stay readable */
+html[data-theme="light"] .bg-emerald-500\/10,
+html[data-theme="light"] .bg-slate-900\/80 {
+  background-color: #e0fbea;
+}
