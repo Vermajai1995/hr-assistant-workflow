@@ -1,7 +1,13 @@
 // app/capture/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  ChangeEvent,
+} from "react";
 
 type PiiRow = {
   field: string;
@@ -10,6 +16,8 @@ type PiiRow = {
   confidence: number;
   snippet?: string;
 };
+
+type PiiRowExt = PiiRow & { id: string };
 
 type TabId = "transcript" | "pii";
 
@@ -69,39 +77,76 @@ const FIELD_ORDER: string[] = [
   "Other Notes",
 ];
 
+// Core fields for completeness bar
+const CORE_FIELDS: string[] = [
+  "Client Name",
+  "Client Company / Agency",
+  "Client Location / City",
+  "Position Title",
+  "Total Openings",
+  "Experience Required (years)",
+  "Experience Level",
+  "Budget Range (INR/month)",
+  "Work Mode",
+];
+
 export default function CapturePage() {
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
   const [transcript, setTranscript] = useState<string>("");
-  const [piiRows, setPiiRows] = useState<PiiRow[]>([]);
+  const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
   const [hrBrief, setHrBrief] = useState<string>("");
   const [briefCopied, setBriefCopied] = useState(false);
+  const [emailDraft, setEmailDraft] = useState<string>("");
+  const [jdText, setJdText] = useState<string>("");
+  const [jsonCopied, setJsonCopied] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
 
-  // Sorted rows by preferred HR order
-  const sortedRows = useMemo(() => {
-    if (!piiRows.length) return [];
+  // Helpers
+  const sortRows = (raw: PiiRow[]): PiiRowExt[] => {
+    const withId: PiiRowExt[] = raw.map((r, i) => ({
+      ...r,
+      id: `${i}-${r.field}-${r.category}`,
+    }));
 
-    return [...piiRows].sort((a, b) => {
+    return withId.sort((a, b) => {
       const aIdx = FIELD_ORDER.indexOf(a.field);
       const bIdx = FIELD_ORDER.indexOf(b.field);
-
       const aScore = aIdx === -1 ? FIELD_ORDER.length + 1 : aIdx;
       const bScore = bIdx === -1 ? FIELD_ORDER.length + 1 : bIdx;
-
-      if (aScore === bScore) {
-        // fallback: keep original relative order
-        return piiRows.indexOf(a) - piiRows.indexOf(b);
-      }
+      if (aScore === bScore) return 0;
       return aScore - bScore;
     });
-  }, [piiRows]);
+  };
+
+  const getFieldValue = (name: string): string | undefined =>
+    rows.find((r) => r.field === name)?.value;
+
+  // Completeness info
+  const completeness = useMemo(() => {
+    if (!rows.length) {
+      return {
+        total: CORE_FIELDS.length,
+        present: 0,
+        missing: CORE_FIELDS,
+        percent: 0,
+      };
+    }
+    const presentSet = new Set(
+      rows.map((r) => r.field).filter((f) => CORE_FIELDS.includes(f))
+    );
+    const present = presentSet.size;
+    const missing = CORE_FIELDS.filter((f) => !presentSet.has(f));
+    const percent = Math.round((present / CORE_FIELDS.length) * 100);
+    return { total: CORE_FIELDS.length, present, missing, percent };
+  }, [rows]);
 
   // Init / re-init speech recognition on language change
   useEffect(() => {
@@ -157,12 +202,14 @@ export default function CapturePage() {
         // ignore
       }
     };
-  }, [lang]); // language change pe naya recognition
+  }, [lang, isListening]);
 
   const startListening = () => {
     if (!recognitionRef.current) return;
-    setPiiRows([]);
+    setRows([]);
     setHrBrief("");
+    setEmailDraft("");
+    setJdText("");
     try {
       recognitionRef.current.lang = lang;
       recognitionRef.current.start();
@@ -197,7 +244,11 @@ export default function CapturePage() {
     setError(null);
     setStatus("Extracting structured HR details…");
     setHrBrief("");
+    setEmailDraft("");
+    setJdText("");
     setBriefCopied(false);
+    setEmailCopied(false);
+    setJsonCopied(false);
 
     try {
       const res = await fetch("/api/extract-pii", {
@@ -212,10 +263,11 @@ export default function CapturePage() {
         throw new Error(data?.error || "Failed to extract PII");
       }
 
-      setPiiRows(data.rows || []);
+      const sorted = sortRows(data.rows || []);
+      setRows(sorted);
       setStatus(
-        data.rows?.length
-          ? `Found ${data.rows.length} key fields for this requirement.`
+        sorted.length
+          ? `Found ${sorted.length} key fields for this requirement.`
           : "No useful fields found in this conversation."
       );
       setActiveTab("pii");
@@ -228,14 +280,22 @@ export default function CapturePage() {
     }
   };
 
+  // Inline edit handler
+  const handleValueChange = (id: string, e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, value } : r))
+    );
+  };
+
   const handleCopyAsMarkdown = async () => {
-    if (!sortedRows.length) return;
+    if (!rows.length) return;
 
     const header =
       "| # | Field | Value | Category | Confidence | Snippet |\n" +
       "|---|-------|-------|----------|------------|---------|\n";
 
-    const rowsStr = sortedRows
+    const rowsStr = rows
       .map((row, idx) => {
         const conf = row.confidence?.toFixed(2) ?? "";
         const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
@@ -256,11 +316,11 @@ export default function CapturePage() {
   };
 
   const handleExportCSV = () => {
-    if (!sortedRows.length) return;
+    if (!rows.length) return;
 
     let csv = "Index,Field,Value,Category,Confidence,Snippet\n";
 
-    sortedRows.forEach((row, idx) => {
+    rows.forEach((row, idx) => {
       const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
       csv += [
         idx + 1,
@@ -282,35 +342,68 @@ export default function CapturePage() {
     setStatus("CSV exported.");
   };
 
+  // JSON export (copy to clipboard)
+  const handleCopyJson = async () => {
+    if (!rows.length) return;
+
+    const jsonObj: any = {
+      clientName: getFieldValue("Client Name") || null,
+      clientCompany: getFieldValue("Client Company / Agency") || null,
+      clientCity: getFieldValue("Client Location / City") || null,
+      workLocation: getFieldValue("Work Location") || null,
+      positionTitle: getFieldValue("Position Title") || null,
+      totalOpenings: getFieldValue("Total Openings") || null,
+      experienceYears: getFieldValue("Experience Required (years)") || null,
+      experienceLevel: getFieldValue("Experience Level") || null,
+      workMode: getFieldValue("Work Mode") || null,
+      skills: getFieldValue("Required Skills / Tech Stack") || null,
+      budgetRangeInrPerMonth: getFieldValue("Budget Range (INR/month)") || null,
+      minBudgetInrPerMonth: getFieldValue("Minimum Budget (INR/month)") || null,
+      maxBudgetInrPerMonth: getFieldValue("Maximum Budget (INR/month)") || null,
+      noticePeriod: getFieldValue("Notice Period / Joining Timeline") || null,
+      contractType: getFieldValue("Contract Type") || null,
+      shiftTiming: getFieldValue("Shift Timing") || null,
+      otherNotes: getFieldValue("Other Notes") || null,
+      rawRows: rows.map(({ id, ...rest }) => rest),
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(jsonObj, null, 2));
+      setJsonCopied(true);
+      setStatus("JSON copied to clipboard.");
+    } catch (e) {
+      setError("Failed to copy JSON.");
+    }
+  };
+
+  // HR brief generator (uses edited data)
   const handleGenerateBrief = () => {
-    if (!sortedRows.length) {
+    if (!rows.length) {
       setError("Extract fields first, then generate the HR brief.");
       return;
     }
     setError(null);
     setBriefCopied(false);
 
-    const get = (name: string): string | undefined =>
-      sortedRows.find((r) => r.field === name)?.value;
-
-    const clientName = get("Client Name");
-    const clientCompany = get("Client Company / Agency");
+    const clientName = getFieldValue("Client Name");
+    const clientCompany = getFieldValue("Client Company / Agency");
     const clientCity =
-      get("Client Location / City") || get("Work Location") || undefined;
-    const position = get("Position Title");
-    const openings = get("Total Openings");
-    const expYears = get("Experience Required (years)");
-    const expLevel = get("Experience Level");
-    const budgetRange = get("Budget Range (INR/month)");
-    const workMode = get("Work Mode");
-    const skills = get("Required Skills / Tech Stack");
-    const notice = get("Notice Period / Joining Timeline");
-    const contractType = get("Contract Type");
-    const shift = get("Shift Timing");
+      getFieldValue("Client Location / City") ||
+      getFieldValue("Work Location") ||
+      undefined;
+    const position = getFieldValue("Position Title");
+    const openings = getFieldValue("Total Openings");
+    const expYears = getFieldValue("Experience Required (years)");
+    const expLevel = getFieldValue("Experience Level");
+    const budgetRange = getFieldValue("Budget Range (INR/month)");
+    const workMode = getFieldValue("Work Mode");
+    const skills = getFieldValue("Required Skills / Tech Stack");
+    const notice = getFieldValue("Notice Period / Joining Timeline");
+    const contractType = getFieldValue("Contract Type");
+    const shift = getFieldValue("Shift Timing");
 
     const lines: string[] = [];
 
-    // Title line
     const titleRole = position || "Role";
     const titleLoc = clientCity ? ` (${clientCity})` : "";
     lines.push(`Hiring Requirement – ${titleRole}${titleLoc}`);
@@ -346,6 +439,9 @@ export default function CapturePage() {
     if (shift) {
       lines.push(`Shift: ${shift}`);
     }
+    if (notice) {
+      lines.push(`Notice / Joining: ${notice}`);
+    }
 
     if (skills) {
       lines.push("");
@@ -353,8 +449,8 @@ export default function CapturePage() {
     }
 
     lines.push("");
-    lines.push("All captured details:");
-    sortedRows.forEach((row) => {
+    lines.push("All captured fields:");
+    rows.forEach((row) => {
       lines.push(`- ${row.field}: ${row.value}`);
     });
 
@@ -374,19 +470,165 @@ export default function CapturePage() {
     }
   };
 
+  // Email draft generator
+  const handleGenerateEmail = () => {
+    if (!rows.length) {
+      setError("Extract fields first to generate email.");
+      return;
+    }
+    setError(null);
+    setEmailCopied(false);
+
+    const clientName = getFieldValue("Client Name") || "there";
+    const clientCompany = getFieldValue("Client Company / Agency");
+    const position = getFieldValue("Position Title") || "the role";
+    const clientCity =
+      getFieldValue("Client Location / City") ||
+      getFieldValue("Work Location") ||
+      "";
+    const openings = getFieldValue("Total Openings");
+    const expYears = getFieldValue("Experience Required (years)");
+    const expLevel = getFieldValue("Experience Level");
+    const budgetRange = getFieldValue("Budget Range (INR/month)");
+    const workMode = getFieldValue("Work Mode");
+
+    const subjectRole = position;
+    const subjectLoc = clientCity ? ` – ${clientCity}` : "";
+    const subject = `Requirement summary – ${subjectRole}${subjectLoc}`;
+
+    const summaryLines: string[] = [];
+    if (position) summaryLines.push(`• Position: ${position}`);
+    if (openings) summaryLines.push(`• Openings: ${openings}`);
+    if (clientCity) summaryLines.push(`• Location: ${clientCity}`);
+    if (workMode) summaryLines.push(`• Work mode: ${workMode}`);
+    if (expLevel || expYears) {
+      const expParts = [
+        expLevel,
+        expYears ? `${expYears} years` : undefined,
+      ].filter(Boolean);
+      summaryLines.push(`• Experience: ${expParts.join(" · ")}`);
+    }
+    if (budgetRange) summaryLines.push(`• Budget: ${budgetRange}`);
+
+    const emailBody = [
+      `Hi ${clientName},`,
+      "",
+      "Thank you for sharing the hiring requirement.",
+      "Here is the summary based on our conversation:",
+      "",
+      ...summaryLines,
+      "",
+      "If anything looks off or needs correction (openings, budget, experience, etc.),",
+      "please reply with the updated details and we will adjust it on our side.",
+      "",
+      "Regards,",
+      "HR Team",
+      clientCompany || "",
+    ].join("\n");
+
+    const fullDraft = `Subject: ${subject}\n\n${emailBody}`;
+    setEmailDraft(fullDraft);
+    setStatus("Email draft generated.");
+  };
+
+  const handleCopyEmail = async () => {
+    if (!emailDraft.trim()) return;
+    try {
+      await navigator.clipboard.writeText(emailDraft);
+      setEmailCopied(true);
+      setStatus("Email draft copied to clipboard.");
+    } catch (e) {
+      setError("Failed to copy email draft.");
+    }
+  };
+
+  // JD generator (short job description)
+  const handleGenerateJD = () => {
+    if (!rows.length) {
+      setError("Extract fields first to generate a job description.");
+      return;
+    }
+    setError(null);
+
+    const position = getFieldValue("Position Title") || "Software Engineer";
+    const clientCompany =
+      getFieldValue("Client Company / Agency") || "our client";
+    const clientCity =
+      getFieldValue("Client Location / City") ||
+      getFieldValue("Work Location") ||
+      "";
+    const openings = getFieldValue("Total Openings");
+    const expYears = getFieldValue("Experience Required (years)");
+    const budgetRange = getFieldValue("Budget Range (INR/month)");
+    const workMode = getFieldValue("Work Mode");
+    const skills = getFieldValue("Required Skills / Tech Stack");
+
+    const lines: string[] = [];
+
+    lines.push(`${position} – Job Description`);
+    lines.push("--------------------------------");
+    lines.push("");
+    lines.push(
+      `We are hiring${openings ? ` ${openings}` : ""} ${position}${
+        clientCity ? ` for our client based in ${clientCity}` : ""
+      }.`
+    );
+
+    if (expYears) {
+      lines.push(`Experience required: around ${expYears} years.`);
+    }
+
+    if (workMode) {
+      lines.push(`Work mode: ${workMode}.`);
+    }
+
+    if (budgetRange) {
+      lines.push(`Budget range (per month): ${budgetRange}.`);
+    }
+
+    if (skills) {
+      lines.push("");
+      lines.push("Key skills:");
+      lines.push(`- ${skills}`);
+    }
+
+    lines.push("");
+    lines.push("Responsibilities (high-level):");
+    lines.push("- Work closely with the team to deliver assigned tasks.");
+    lines.push(
+      "- Ensure quality, reliability and timely completion of project work."
+    );
+    lines.push(
+      "- Collaborate with stakeholders and communicate progress regularly."
+    );
+
+    lines.push("");
+    lines.push("Nice to have:");
+    lines.push("- Strong communication and ownership mindset.");
+    lines.push("- Ability to work independently with minimal supervision.");
+
+    const jd = lines.join("\n");
+    setJdText(jd);
+    setStatus("Short job description generated.");
+  };
+
   const handleTabChange = (tab: TabId) => {
-    if (isListening) return; // optional: disable switching while listening
+    if (isListening) return;
     setActiveTab(tab);
   };
 
   const handleReset = () => {
     setTranscript("");
-    setPiiRows([]);
+    setRows([]);
     setError(null);
     setStatus("Idle");
     setActiveTab("transcript");
     setHrBrief("");
+    setEmailDraft("");
+    setJdText("");
     setBriefCopied(false);
+    setEmailCopied(false);
+    setJsonCopied(false);
   };
 
   const isBusy = isListening || isExtracting;
@@ -443,7 +685,7 @@ export default function CapturePage() {
           </button>
           <button
             onClick={handleReset}
-            disabled={isBusy || (!transcript && !piiRows.length)}
+            disabled={isBusy || (!transcript && !rows.length)}
             className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 border border-slate-700 disabled:opacity-50"
           >
             ↺ Clear
@@ -452,7 +694,7 @@ export default function CapturePage() {
       </div>
 
       {/* Status line */}
-      <div className="flex items-center gap-2 text-xs text-slate-200">
+      <div className="flex items-center gap-2 text-xs text-slate-200 flex-wrap">
         <span
           className={`inline-flex h-2 w-2 rounded-full ${
             isListening
@@ -471,6 +713,16 @@ export default function CapturePage() {
         {briefCopied && (
           <span className="text-[10px] text-emerald-300">
             HR brief copied ✔
+          </span>
+        )}
+        {emailCopied && (
+          <span className="text-[10px] text-emerald-300">
+            Email draft copied ✔
+          </span>
+        )}
+        {jsonCopied && (
+          <span className="text-[10px] text-emerald-300">
+            JSON copied ✔
           </span>
         )}
       </div>
@@ -538,8 +790,8 @@ export default function CapturePage() {
                   🔄 Sync &amp; extract HR fields
                 </button>
                 <p className="text-[10px] text-slate-500 max-w-xs text-right">
-                  Tip: You can also paste Zoom/Meet recording transcript,
-                  WhatsApp export, or notes from a phone call.
+                  Tip: You can also paste Zoom/Meet transcript, WhatsApp export,
+                  or notes from a phone call.
                 </p>
               </div>
             </div>
@@ -547,41 +799,59 @@ export default function CapturePage() {
 
           {activeTab === "pii" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-100">
-                    Structured requirement fields
-                  </h2>
-                  <p className="text-[11px] text-slate-400">
-                    Use this table to update your ATS, share with team, or send
-                    back to client.
-                  </p>
+              {/* Completeness bar */}
+              <div className="flex flex-col gap-1 text-xs text-slate-200 mb-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">
+                      Field completeness:
+                    </span>
+                    <span className="text-emerald-300">
+                      {completeness.present} / {completeness.total} core
+                      fields
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handleCopyAsMarkdown}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                    >
+                      Copy table (MD)
+                    </button>
+                    <button
+                      onClick={handleExportCSV}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                    >
+                      Export CSV
+                    </button>
+                    <button
+                      onClick={handleCopyJson}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-emerald-500/60 disabled:opacity-50"
+                    >
+                      {jsonCopied ? "JSON copied" : "Copy JSON"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={handleCopyAsMarkdown}
-                    disabled={!sortedRows.length || isBusy}
-                    className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
-                  >
-                    Copy as table
-                  </button>
-                  <button
-                    onClick={handleExportCSV}
-                    disabled={!sortedRows.length || isBusy}
-                    className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
-                  >
-                    Export CSV
-                  </button>
-                  <button
-                    onClick={handleGenerateBrief}
-                    disabled={!sortedRows.length || isBusy}
-                    className="rounded-full bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-emerald-400/80 disabled:opacity-50"
-                  >
-                    ✉ Generate HR brief
-                  </button>
+                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                    style={{ width: `${completeness.percent}%` }}
+                  />
                 </div>
+                {completeness.missing.length > 0 && (
+                  <div className="text-[10px] text-slate-400">
+                    Missing core fields:{" "}
+                    <span className="text-amber-300">
+                      {completeness.missing.join(", ")}
+                    </span>
+                  </div>
+                )}
               </div>
 
+              {/* Table */}
               <div className="overflow-x-auto border border-slate-800/80 rounded-2xl bg-slate-950/70">
                 <table className="min-w-full text-[11px]">
                   <thead className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border-b border-slate-800">
@@ -593,7 +863,7 @@ export default function CapturePage() {
                         Field
                       </th>
                       <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                        Value
+                        Value (editable)
                       </th>
                       <th className="px-2 py-2 text-left text-slate-400 font-medium">
                         Category
@@ -607,7 +877,7 @@ export default function CapturePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRows.length === 0 ? (
+                    {rows.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
@@ -618,70 +888,169 @@ export default function CapturePage() {
                         </td>
                       </tr>
                     ) : (
-                      sortedRows.map((row, idx) => (
-                        <tr
-                          key={idx}
-                          className="border-t border-slate-800/70 odd:bg-slate-950/70 even:bg-slate-950/40 hover:bg-slate-900/60 transition-colors"
-                        >
-                          <td className="px-2 py-2 align-top text-slate-500">
-                            {idx + 1}
-                          </td>
-                          <td className="px-2 py-2 align-top font-medium text-slate-100">
-                            {row.field}
-                          </td>
-                          <td className="px-2 py-2 align-top text-slate-100">
-                            {row.value}
-                          </td>
-                          <td className="px-2 py-2 align-top">
-                            <span className={categoryBadgeClass(row.category)}>
-                              {row.category || "—"}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 align-top text-slate-300">
-                            {row.confidence !== undefined
-                              ? row.confidence.toFixed(2)
-                              : ""}
-                          </td>
-                          <td className="px-2 py-2 align-top text-slate-400 max-w-[260px]">
-                            <span className="line-clamp-3">
-                              {row.snippet || "—"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                      rows.map((row, idx) => {
+                        const sensitive = isSensitiveRow(row);
+                        return (
+                          <tr
+                            key={row.id}
+                            className={`border-t border-slate-800/70 odd:bg-slate-950/70 even:bg-slate-950/40 hover:bg-slate-900/60 transition-colors ${
+                              sensitive ? "bg-red-950/40" : ""
+                            }`}
+                          >
+                            <td className="px-2 py-2 align-top text-slate-500">
+                              {idx + 1}
+                            </td>
+                            <td className="px-2 py-2 align-top font-medium text-slate-100">
+                              <div className="flex items-center gap-1">
+                                {row.field}
+                                {sensitive && (
+                                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-400/60 px-1.5 py-[1px] text-[9px] text-red-200">
+                                    ⚠ Sensitive
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 align-top text-slate-100">
+                              <input
+                                className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-1 py-[3px] text-[11px] text-slate-100 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/80"
+                                value={row.value}
+                                onChange={(e) =>
+                                  handleValueChange(row.id, e)
+                                }
+                              />
+                            </td>
+                            <td className="px-2 py-2 align-top">
+                              <span
+                                className={categoryBadgeClass(row.category)}
+                              >
+                                {row.category || "—"}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 align-top text-slate-300">
+                              {row.confidence !== undefined
+                                ? row.confidence.toFixed(2)
+                                : ""}
+                            </td>
+                            <td className="px-2 py-2 align-top text-slate-400 max-w-[260px]">
+                              <span className="line-clamp-3">
+                                {row.snippet || "—"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
               </div>
 
-              {/* HR brief preview */}
-              {hrBrief && (
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div>
-                      <h3 className="text-xs font-semibold text-slate-100">
-                        HR email / notes template
-                      </h3>
-                      <p className="text-[10px] text-slate-400">
-                        Copy & paste directly into email, ATS, or your notes.
-                      </p>
-                    </div>
+              {/* HR brief + email + JD */}
+              <div className="mt-4 space-y-4">
+                {/* Brief + email buttons */}
+                <div className="flex flex-wrap gap-2 justify-between items-center">
+                  <div className="space-y-1">
+                    <h3 className="text-xs font-semibold text-slate-100">
+                      Summaries & templates
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      Update table values if needed, then generate clean text
+                      blocks.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={handleCopyBrief}
-                      disabled={!hrBrief.trim()}
-                      className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                      onClick={handleGenerateBrief}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-emerald-400/80 disabled:opacity-50"
                     >
-                      Copy brief
+                      📝 HR brief
+                    </button>
+                    <button
+                      onClick={handleGenerateEmail}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-sky-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-sky-400/80 disabled:opacity-50"
+                    >
+                      ✉ Email draft
+                    </button>
+                    <button
+                      onClick={handleGenerateJD}
+                      disabled={!rows.length || isBusy}
+                      className="rounded-full bg-indigo-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-50 border border-indigo-400/80 disabled:opacity-50"
+                    >
+                      📄 Short JD
                     </button>
                   </div>
-
-                  <textarea
-                    className="w-full min-h-[140px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
-                    value={hrBrief}
-                    readOnly
-                  />
                 </div>
-              )}
+
+                {/* HR brief */}
+                {hrBrief && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-xs font-semibold text-slate-100">
+                          HR brief (internal notes)
+                        </h4>
+                      </div>
+                      <button
+                        onClick={handleCopyBrief}
+                        disabled={!hrBrief.trim()}
+                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                      >
+                        Copy brief
+                      </button>
+                    </div>
+                    <textarea
+                      className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                      value={hrBrief}
+                      readOnly
+                    />
+                  </div>
+                )}
+
+                {/* Email draft */}
+                {emailDraft && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-xs font-semibold text-slate-100">
+                          Email draft for client confirmation
+                        </h4>
+                      </div>
+                      <button
+                        onClick={handleCopyEmail}
+                        disabled={!emailDraft.trim()}
+                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                      >
+                        Copy email
+                      </button>
+                    </div>
+                    <textarea
+                      className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                      value={emailDraft}
+                      readOnly
+                    />
+                  </div>
+                )}
+
+                {/* JD text */}
+                {jdText && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-xs font-semibold text-slate-100">
+                          Short job description
+                        </h4>
+                      </div>
+                      {/* reuse brief copy button if needed manually */}
+                    </div>
+                    <textarea
+                      className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                      value={jdText}
+                      readOnly
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -695,7 +1064,8 @@ export default function CapturePage() {
   );
 }
 
-// Helpers for escaping markdown/CSV
+// --------- helpers ----------
+
 function escapeMd(text: string): string {
   return text.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
@@ -724,4 +1094,23 @@ function categoryBadgeClass(category: string): string {
     default:
       return `${base} bg-slate-700/40 border-slate-500/80 text-slate-100`;
   }
+}
+
+// very rough sensitive pattern detection
+function isSensitiveRow(row: PiiRow): boolean {
+  const value = row.value || "";
+  const field = row.field.toLowerCase();
+
+  // Aadhaar-like 12 digits
+  const aadhaarLike = /\b\d{4}\s?\d{4}\s?\d{4}\b/.test(value);
+  // PAN-like pattern
+  const panLike = /\b[A-Z]{5}\d{4}[A-Z]\b/i.test(value);
+  // Long pure digit sequences (potential account/card)
+  const longDigits = /\b\d{10,}\b/.test(value);
+
+  if (aadhaarLike || panLike || longDigits) return true;
+  if (field.includes("aadhaar") || field.includes("pan") || field.includes("id"))
+    return true;
+
+  return false;
 }
