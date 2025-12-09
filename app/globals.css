@@ -89,11 +89,18 @@ html[data-theme="light"] .border-slate-700\/70 {
 }
 
 /* Text inside dark components → darker text in light mode */
-html[data-theme="light"] .text-slate-100,
-html[data-theme="light"] .text-slate-200,
-html[data-theme="light"] .text-slate-300 {
-  color: #0f172a;
+/* Text contrast fix for light mode */
+html[data-theme="light"] .text-slate-400,
+html[data-theme="light"] .text-slate-500,
+html[data-theme="light"] .text-slate-600 {
+  color: #111827; /* very dark navy */
 }
+
+/* Small helper: light-mode labels inside cards should still look soft but readable */
+html[data-theme="light"] .text-slate-300 {
+  color: #1f2933;
+}
+
 
 /* Textareas / inputs background in light theme */
 html[data-theme="light"] textarea.bg-slate-950\/80,
@@ -108,3 +115,15 @@ html[data-theme="light"] .bg-emerald-500\/10,
 html[data-theme="light"] .bg-slate-900\/80 {
   background-color: #e0fbea;
 }
+
+/* Table rows background in light theme – clearer grey */
+html[data-theme="light"] .odd\:bg-slate-950\/70,
+html[data-theme="light"] .even\:bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/40 {
+  background-color: #f3f4f6; /* light grey */
+}
+html[data-theme="light"] td.text-slate-400,
+html[data-theme="light"] td .text-slate-400 {
+  color: #111827;
+}
+

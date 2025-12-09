@@ -46,7 +46,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
         {/* Feedback Widget Loader */}
         <Script
-  src="https://feedback-jai-patel.vercel.app/widget.js?from=AI%20Resume%20Builder"
+  src="https://feedback-jai-patel.vercel.app/?from=PII+Assistant"
   strategy="afterInteractive"
 />
         </main>
