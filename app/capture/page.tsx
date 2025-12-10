@@ -110,7 +110,7 @@ export default function CapturePage() {
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
-  const [transcript, setTranscript] = useState<string>("");
+  const [transcript, setTranscript] = useState<string>("उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.");
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
@@ -361,6 +361,45 @@ export default function CapturePage() {
       setLoadingAction(null);
     }
   };
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+  
+    setLoadingAction("extract");
+    setStatus(`Reading ${file.name} …`);
+    setError(null);
+  
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+  
+      const res = await fetch("/api/upload-pii", {
+        method: "POST",
+        body: fd,
+      });
+  
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to parse file");
+  
+      const extractedText: string = data.text || "";
+  
+      if (!extractedText.trim()) {
+        setError("No readable text found in file.");
+        return;
+      }
+  
+      setTranscript(extractedText);
+      await handleExtractPII(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "File processing error");
+    } finally {
+      setLoadingAction(null);
+      e.target.value = "";
+    }
+  };
+  
 
   // Inline edit handler
   const handleValueChange = (id: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -790,10 +829,24 @@ export default function CapturePage() {
                       : "empty"}
                   </span>
                 </div>
+               {/* FILE UPLOAD */}
+<div className="flex items-center gap-3 text-xs text-slate-300 mb-1">
+  <input
+    type="file"
+    accept=".pdf,.docx,.txt"
+    onChange={handleFileUpload}
+    className="text-[11px]"
+  />
+  <span className="text-[10px] text-slate-500">
+    Upload PDF / DOCX / TXT – we&apos;ll read it and extract HR fields.
+  </span>
+</div>
+
+
 
                 <textarea
                   className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
-                  placeholder="उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month."
+                  placeholder=""
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
                   readOnly={isListening}
