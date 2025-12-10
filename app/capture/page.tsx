@@ -42,7 +42,9 @@ type SpeechRecognitionType = {
   onstart: ((this: SpeechRecognitionType, ev: Event) => any) | null;
   onerror: ((this: SpeechRecognitionType, ev: any) => any) | null;
   onend: ((this: SpeechRecognitionType, ev: Event) => any) | null;
-  onresult: ((this: SpeechRecognitionType, ev: SpeechRecognitionEvent) => any) | null;
+  onresult:
+    | ((this: SpeechRecognitionType, ev: SpeechRecognitionEvent) => any)
+    | null;
 };
 
 declare global {
@@ -100,8 +102,12 @@ const CORE_FIELDS: string[] = [
   "Work Mode",
 ];
 
-type ThemeOption = "light" | "dark" | "system";
-type LoadingAction = null | "extract" | "transliterate";
+// OLD
+// type ThemeOption = "light" | "dark" | "system";
+// NEW
+type ThemeOption = "dark" | "system";
+
+type LoadingAction = null | "extract" | "transliterate" | "file";
 
 export default function CapturePage() {
   // Hydration fix: only render full UI after mount
@@ -110,7 +116,9 @@ export default function CapturePage() {
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
-  const [transcript, setTranscript] = useState<string>("उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.");
+  const [transcript, setTranscript] = useState<string>(
+    "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month."
+  );
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
@@ -132,6 +140,9 @@ export default function CapturePage() {
 
   // Global loading state for overlay spinner
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [filePreview, setFilePreview] = useState<string>("");
+  const [whatsAppText, setWhatsAppText] = useState<string>("");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
 
@@ -139,13 +150,14 @@ export default function CapturePage() {
     setMounted(true);
   }, []);
 
-  // Theme: load from localStorage
   useEffect(() => {
     if (!mounted) return;
     try {
       const saved = localStorage.getItem("theme");
-      if (saved === "light" || saved === "dark" || saved === "system") {
+      if (saved === "dark" || saved === "system") {
         setTheme(saved);
+      } else {
+        setTheme("dark");
       }
     } catch {
       // ignore
@@ -363,50 +375,143 @@ export default function CapturePage() {
   };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-  
-    setLoadingAction("extract");
-    setStatus(`Reading ${file.name} …`);
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    await processFilesAndExtract(files);
+    e.target.value = "";
+  };
+
+  const processFilesAndExtract = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (!fileArray.length) return;
+
+    setLoadingAction("file");
+    setStatus("Reading files and extracting text…");
     setError(null);
-  
+
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-  
-      const res = await fetch("/api/upload-pii", {
-        method: "POST",
-        body: fd,
-      });
-  
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to parse file");
-  
-      const extractedText: string = data.text || "";
-  
-      if (!extractedText.trim()) {
-        setError("No readable text found in file.");
+      let combinedText = "";
+
+      for (const file of fileArray) {
+        const fd = new FormData();
+        fd.append("file", file);
+
+        const res = await fetch("/api/upload-pii", {
+          method: "POST",
+          body: fd,
+        });
+
+        const data = await res.json();
+        if (!res.ok)
+          throw new Error(data.error || `Failed on file: ${file.name}`);
+
+        const extracted: string = data.text || "";
+        if (!extracted.trim()) continue;
+
+        combinedText += `\n\n----- FILE: ${file.name} -----\n\n${extracted}`;
+      }
+
+      if (!combinedText.trim()) {
+        setError("No readable text found in the uploaded file(s).");
         return;
       }
-  
-      setTranscript(extractedText);
+
+      // Update preview + transcript
+      setFilePreview(
+        combinedText.slice(0, 600) + (combinedText.length > 600 ? "..." : "")
+      );
+      setTranscript(combinedText.trim());
+
+      // Now call normal extraction
       await handleExtractPII(false);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "File processing error");
     } finally {
       setLoadingAction(null);
-      e.target.value = "";
     }
   };
-  
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const files = e.dataTransfer.files;
+    if (!files || !files.length) return;
+
+    await processFilesAndExtract(files);
+  };
+
+  const handleGenerateWhatsApp = () => {
+    if (!rows.length) {
+      setError("Extract fields first to generate WhatsApp summary.");
+      return;
+    }
+    setError(null);
+
+    const position = getFieldValue("Position Title") || "Software Engineer";
+    const clientName = getFieldValue("Client Name");
+    const clientCompany = getFieldValue("Client Company / Agency");
+    const clientCity =
+      getFieldValue("Client Location / City") ||
+      getFieldValue("Work Location") ||
+      "";
+    const openings = getFieldValue("Total Openings");
+    const expYears = getFieldValue("Experience Required (years)");
+    const expLevel = getFieldValue("Experience Level");
+    const budget = getFieldValue("Budget Range (INR/month)");
+    const skills = getFieldValue("Required Skills / Tech Stack");
+    const workMode = getFieldValue("Work Mode");
+
+    const parts: string[] = [];
+
+    if (clientName || clientCompany) {
+      parts.push(
+        `Client: ${[clientName, clientCompany].filter(Boolean).join(" | ")}`
+      );
+    }
+
+    let firstLine = `Role: ${position}`;
+    if (clientCity) firstLine += ` (${clientCity})`;
+    parts.push(firstLine);
+
+    if (openings) parts.push(`Openings: ${openings}`);
+    if (expLevel || expYears) {
+      const expParts = [
+        expLevel,
+        expYears ? `${expYears} yrs` : undefined,
+      ].filter(Boolean);
+      parts.push(`Exp: ${expParts.join(" · ")}`);
+    }
+    if (workMode) parts.push(`Mode: ${workMode}`);
+    if (budget) parts.push(`Budget: ${budget}`);
+    if (skills) parts.push(`Skills: ${skills}`);
+
+    const msg =
+      parts.join(" | ") +
+      "\n\nIf this looks interesting, ping me and I’ll share full JD + next steps.";
+
+    setWhatsAppText(msg);
+    setStatus("WhatsApp summary generated.");
+  };
 
   // Inline edit handler
   const handleValueChange = (id: string, e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, value } : r))
-    );
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, value } : r)));
   };
 
   // Transliteration: Hindi → English letters
@@ -508,14 +613,15 @@ export default function CapturePage() {
 
     rows.forEach((row, idx) => {
       const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
-      csv += [
-        idx + 1,
-        csvEscape(row.field),
-        csvEscape(row.value),
-        csvEscape(row.category),
-        row.confidence?.toFixed(2) ?? "",
-        csvEscape(snippet),
-      ].join(",") + "\n";
+      csv +=
+        [
+          idx + 1,
+          csvEscape(row.field),
+          csvEscape(row.value),
+          csvEscape(row.category),
+          row.confidence?.toFixed(2) ?? "",
+          csvEscape(snippet),
+        ].join(",") + "\n";
     });
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -539,19 +645,14 @@ export default function CapturePage() {
       workLocation: getFieldValue("Work Location") || null,
       positionTitle: getFieldValue("Position Title") || null,
       totalOpenings: getFieldValue("Total Openings") || null,
-      experienceYears:
-        getFieldValue("Experience Required (years)") || null,
+      experienceYears: getFieldValue("Experience Required (years)") || null,
       experienceLevel: getFieldValue("Experience Level") || null,
       workMode: getFieldValue("Work Mode") || null,
       skills: getFieldValue("Required Skills / Tech Stack") || null,
-      budgetRangeInrPerMonth:
-        getFieldValue("Budget Range (INR/month)") || null,
-      minBudgetInrPerMonth:
-        getFieldValue("Minimum Budget (INR/month)") || null,
-      maxBudgetInrPerMonth:
-        getFieldValue("Maximum Budget (INR/month)") || null,
-      noticePeriod:
-        getFieldValue("Notice Period / Joining Timeline") || null,
+      budgetRangeInrPerMonth: getFieldValue("Budget Range (INR/month)") || null,
+      minBudgetInrPerMonth: getFieldValue("Minimum Budget (INR/month)") || null,
+      maxBudgetInrPerMonth: getFieldValue("Maximum Budget (INR/month)") || null,
+      noticePeriod: getFieldValue("Notice Period / Joining Timeline") || null,
       contractType: getFieldValue("Contract Type") || null,
       shiftTiming: getFieldValue("Shift Timing") || null,
       otherNotes: getFieldValue("Other Notes") || null,
@@ -677,8 +778,8 @@ export default function CapturePage() {
               Capture hiring conversations
             </h1>
             <p className="text-[11px] sm:text-xs text-slate-300">
-              Speak with clients or agencies. We&apos;ll turn it into a structured HR
-              requirement table.
+              Speak with clients or agencies. We&apos;ll turn it into a
+              structured HR requirement table.
             </p>
 
             <div className="flex items-center gap-2 text-[11px] text-slate-300 pt-1 flex-wrap">
@@ -708,13 +809,10 @@ export default function CapturePage() {
               <span className="text-slate-400">Theme:</span>
               <select
                 value={theme}
-                onChange={(e) =>
-                  setTheme(e.target.value as ThemeOption)
-                }
+                onChange={(e) => setTheme(e.target.value as ThemeOption)}
                 className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
               >
                 <option value="dark">Dark</option>
-                <option value="light">Light</option>
                 <option value="system">Smart</option>
               </select>
             </div>
@@ -778,9 +876,7 @@ export default function CapturePage() {
             </span>
           )}
           {jsonCopied && (
-            <span className="text-[10px] text-emerald-300">
-              JSON copied ✔
-            </span>
+            <span className="text-[10px] text-emerald-300">JSON copied ✔</span>
           )}
         </div>
 
@@ -829,20 +925,61 @@ export default function CapturePage() {
                       : "empty"}
                   </span>
                 </div>
-               {/* FILE UPLOAD */}
-<div className="flex items-center gap-3 text-xs text-slate-300 mb-1">
-  <input
-    type="file"
-    accept=".pdf,.docx,.txt"
-    onChange={handleFileUpload}
-    className="text-[11px]"
-  />
-  <span className="text-[10px] text-slate-500">
-    Upload PDF / DOCX / TXT – we&apos;ll read it and extract HR fields.
-  </span>
-</div>
 
+                {/* FILE UPLOAD + DRAG/DROP */}
+                <div
+                  className={`mb-2 rounded-xl border px-3 py-2 text-[11px] flex flex-col gap-2 cursor-pointer transition-colors
+    ${
+      dragActive
+        ? "border-emerald-400 bg-slate-900/60"
+        : "border-slate-700 bg-slate-950/40"
+    }
+  `}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-200 font-medium">
+                        Upload transcripts / JD
+                      </span>
+                      <span className="text-slate-400">
+                        (PDF, DOCX, TXT — multiple files allowed)
+                      </span>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 border border-slate-600 text-[11px] text-slate-100">
+                      📄 Choose files
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx,.txt"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Tip: Drop client requirement PDFs, JD docs or saved call
+                    notes – we&apos;ll read everything and extract HR fields
+                    automatically.
+                  </p>
+                </div>
 
+                {/* Optional preview */}
+                {filePreview && (
+                  <div className="mb-3 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-300 max-h-40 overflow-y-auto">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-slate-100">
+                        File text preview
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        First few lines only
+                      </span>
+                    </div>
+                    <pre className="whitespace-pre-wrap">{filePreview}</pre>
+                  </div>
+                )}
 
                 <textarea
                   className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
@@ -866,8 +1003,8 @@ export default function CapturePage() {
                     <span>Sync &amp; extract HR fields</span>
                   </button>
                   <p className="text-[10px] text-slate-500 max-w-xs text-right">
-                    Tip: You can also paste Zoom/Meet transcript, WhatsApp export,
-                    or notes from a phone call.
+                    Tip: You can also paste Zoom/Meet transcript, WhatsApp
+                    export, or notes from a phone call.
                   </p>
                 </div>
               </div>
@@ -879,9 +1016,7 @@ export default function CapturePage() {
                 <div className="flex flex-col gap-1 text-xs text-slate-200 mb-1">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">
-                        Field completeness:
-                      </span>
+                      <span className="font-semibold">Field completeness:</span>
                       <span className="text-emerald-300">
                         {completeness.present} / {completeness.total} core
                         fields
@@ -990,6 +1125,10 @@ export default function CapturePage() {
                       ) : (
                         rows.map((row, idx) => {
                           const sensitive = isSensitiveRow(row);
+                          const isLowConf =
+                            row.confidence !== undefined &&
+                            row.confidence < 0.6;
+
                           return (
                             <tr
                               key={row.id}
@@ -1010,13 +1149,23 @@ export default function CapturePage() {
                                   )}
                                 </div>
                               </td>
+                              <td className="px-2 py-2 align-top">
+                                <span
+                                  className={categoryBadgeClass(row.category)}
+                                >
+                                  {row.category || "—"}
+                                </span>
+                                {isLowConf && (
+                                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-400/60 px-1.5 py-[1px] text-[9px] text-amber-200">
+                                    ⬇ Low conf
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-2 py-2 align-top text-slate-100">
                                 <input
                                   className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-1 py-[3px] text-[11px] text-slate-100 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/80"
                                   value={row.value}
-                                  onChange={(e) =>
-                                    handleValueChange(row.id, e)
-                                  }
+                                  onChange={(e) => handleValueChange(row.id, e)}
                                 />
                               </td>
                               <td className="px-2 py-2 align-top">
@@ -1078,6 +1227,13 @@ export default function CapturePage() {
                         className="rounded-full bg-indigo-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-50 border border-indigo-400/80 disabled:opacity-50"
                       >
                         {isBusy ? <Spinner size={12} /> : "📄 Short JD"}
+                      </button>
+                      <button
+                        onClick={handleGenerateWhatsApp}
+                        disabled={!rows.length || isBusy}
+                        className="rounded-full bg-green-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-green-400/80 disabled:opacity-50"
+                      >
+                        📱 WhatsApp summary
                       </button>
                     </div>
                   </div>
@@ -1149,6 +1305,36 @@ export default function CapturePage() {
                       />
                     </div>
                   )}
+
+                  {whatsAppText && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <h4 className="text-xs font-semibold text-slate-100">
+                            WhatsApp summary (copy & send)
+                          </h4>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(whatsAppText);
+                              setStatus("WhatsApp summary copied.");
+                            } catch {
+                              setError("Failed to copy WhatsApp text.");
+                            }
+                          }}
+                          className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700"
+                        >
+                          Copy text
+                        </button>
+                      </div>
+                      <textarea
+                        className="w-full min-h-[80px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                        value={whatsAppText}
+                        readOnly
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1156,8 +1342,9 @@ export default function CapturePage() {
         </div>
 
         <p className="text-[10px] text-slate-500">
-          Privacy note: This is a prototype. For production, add consent screens,
-          secure storage, and possibly self-hosted models instead of a 3rd party.
+          Privacy note: This is a prototype. For production, add consent
+          screens, secure storage, and possibly self-hosted models instead of a
+          3rd party.
         </p>
       </div>
 
@@ -1219,7 +1406,11 @@ function isSensitiveRow(row: PiiRow): boolean {
   const longDigits = /\b\d{10,}\b/.test(value);
 
   if (aadhaarLike || panLike || longDigits) return true;
-  if (field.includes("aadhaar") || field.includes("pan") || field.includes("id"))
+  if (
+    field.includes("aadhaar") ||
+    field.includes("pan") ||
+    field.includes("id")
+  )
     return true;
 
   return false;
@@ -1310,8 +1501,7 @@ function buildEmailDraft(rows: PiiRowExt[]): string {
   if (!rows.length) return "";
 
   const clientName = getFieldFromRows(rows, "Client Name") || "there";
-  const clientCompany =
-    getFieldFromRows(rows, "Client Company / Agency") || "";
+  const clientCompany = getFieldFromRows(rows, "Client Company / Agency") || "";
   const position = getFieldFromRows(rows, "Position Title") || "the role";
   const clientCity =
     getFieldFromRows(rows, "Client Location / City") ||

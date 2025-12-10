@@ -1,8 +1,8 @@
 // app/api/upload-pii/route.ts
 
 import { NextResponse } from "next/server";
+import mammoth from "mammoth";
 
-// Force Node.js runtime so Node libs work correctly
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
@@ -24,44 +24,37 @@ export async function POST(req: Request) {
     let text = "";
 
     if (name.endsWith(".pdf")) {
-      // ---- PDF HANDLING ----
-      const pdfModule: any = await import("pdf-parse");
+      // ---- PDF via pdfjs-dist ----
+      const pdfjsModule: any = await import("pdfjs-dist");
+      const pdfjs = pdfjsModule.default || pdfjsModule;
 
-      // pdf-parse can be exported in a few different shapes, so we normalize it:
-      let pdfParse: any = pdfModule.default || pdfModule;
-
-      if (typeof pdfParse !== "function") {
-        if (typeof pdfModule.pdfParse === "function") {
-          pdfParse = pdfModule.pdfParse;
-        } else if (
-          pdfModule.default &&
-          typeof pdfModule.default.pdfParse === "function"
-        ) {
-          pdfParse = pdfModule.default.pdfParse;
-        } else if (
-          pdfModule.default &&
-          typeof pdfModule.default.default === "function"
-        ) {
-          pdfParse = pdfModule.default.default;
-        } else {
-          throw new Error("pdf-parse module did not export a callable function");
-        }
+      // In Node environment workers generally not needed for simple text extraction
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "";
       }
 
-      const parsed = await pdfParse(buffer);
-      text = parsed?.text || "";
+      const loadingTask = pdfjs.getDocument({ data: buffer });
+      const pdf = await loadingTask.promise;
+
+      let collected = "";
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const content = await page.getTextContent();
+        const strings = content.items.map((item: any) => item.str);
+        collected += strings.join(" ") + "\n";
+      }
+
+      text = collected.trim();
     } else if (name.endsWith(".docx")) {
-      // ---- DOCX HANDLING ----
-      const mammothModule: any = await import("mammoth");
-      const mammoth = mammothModule.default || mammothModule;
+      // ---- DOCX via mammoth ----
       const result = await mammoth.extractRawText({ buffer });
-      text = result?.value || "";
+      text = result.value || "";
     } else if (name.endsWith(".txt")) {
-      // ---- TXT HANDLING ----
+      // ---- Plain text ----
       text = buffer.toString("utf8");
     } else {
       return NextResponse.json(
-        { error: "Unsupported file type. Use PDF, DOCX or TXT." },
+        { error: "Only PDF, DOCX or TXT are supported." },
         { status: 400 }
       );
     }
