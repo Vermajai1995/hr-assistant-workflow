@@ -9,6 +9,9 @@ import React, {
   ChangeEvent,
 } from "react";
 
+const MAX_FILE_MB = 5;
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
+
 type PiiRow = {
   field: string;
   value: string;
@@ -20,6 +23,13 @@ type PiiRow = {
 type PiiRowExt = PiiRow & { id: string };
 
 type TabId = "transcript" | "pii";
+
+type FileMeta = {
+  fileName: string;
+  fileType: "pdf" | "docx" | "txt" | "other";
+  pageCount?: number;
+  charCount: number;
+};
 
 // Minimal SpeechRecognition type (enough for our usage)
 interface SpeechRecognitionEvent extends Event {
@@ -110,15 +120,21 @@ type ThemeOption = "dark" | "system";
 type LoadingAction = null | "extract" | "transliterate" | "file";
 
 export default function CapturePage() {
+  const SAMPLE_TRANSCRIPT =
+  "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.";
+
   // Hydration fix: only render full UI after mount
   const [mounted, setMounted] = useState(false);
 
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
-  const [transcript, setTranscript] = useState<string>(
-    "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month."
-  );
+  
+  const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
+// ...
+const [hasUploadedFile, setHasUploadedFile] = useState(false);
+
+
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
@@ -142,6 +158,7 @@ export default function CapturePage() {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [dragActive, setDragActive] = useState(false);
   const [filePreview, setFilePreview] = useState<string>("");
+  const [fileStats, setFileStats] = useState<FileMeta[]>([]);
   const [whatsAppText, setWhatsAppText] = useState<string>("");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
@@ -292,6 +309,10 @@ export default function CapturePage() {
     setJdText("");
     setOriginalRows(null);
     setIsTransliterated(false);
+    setFilePreview("");
+    setFileStats([]);
+    setWhatsAppText("");
+    setError(null);
 
     try {
       recognitionRef.current.lang = lang;
@@ -318,15 +339,27 @@ export default function CapturePage() {
   };
 
   const handleExtractPII = async (autoFromMic = false) => {
+    
     const text = transcript.trim();
-    if (!text) {
-      setError("Please speak something first or paste a conversation.");
-      return;
-    }
-    setIsExtracting(true);
-    setLoadingAction("extract");
-    setError(null);
-    setStatus("Extracting structured HR details…");
+
+  // 🔒 Guard: default sample + no file = don't waste API
+  if (!hasUploadedFile && text === SAMPLE_TRANSCRIPT.trim()) {
+    setError(
+      "Please upload a file or type/paste your own conversation before extracting."
+    );
+    setStatus("Idle");
+    return;
+  }
+
+  if (!text) {
+    setError("Please speak something first or paste a conversation.");
+    return;
+  }
+
+  setIsExtracting(true);
+  setLoadingAction("extract");
+  setError(null);
+  setStatus("Extracting structured HR details…");
 
     // Clear old summaries & transliteration state
     setHrBrief("");
@@ -377,13 +410,55 @@ export default function CapturePage() {
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !files.length) return;
-    await processFilesAndExtract(files);
+
+    const validFiles = validateFiles(files);
+    if (!validFiles.length) {
+      e.target.value = "";
+      return;
+    }
+
+    await processFilesAndExtract(validFiles);
     e.target.value = "";
   };
 
-  const processFilesAndExtract = async (files: FileList | File[]) => {
-    const fileArray = Array.from(files);
+  const validateFiles = (files: FileList | File[]): File[] => {
+    const arr = Array.from(files);
+    const acceptedExtensions = [".pdf", ".docx", ".txt"];
+
+    const valid: File[] = [];
+    const problems: string[] = [];
+
+    for (const file of arr) {
+      const lower = file.name.toLowerCase();
+      if (!acceptedExtensions.some((ext) => lower.endsWith(ext))) {
+        problems.push(`"${file.name}": unsupported type (only PDF, DOCX, TXT).`);
+        continue;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        problems.push(
+          `"${file.name}": too large (${(file.size / (1024 * 1024)).toFixed(
+            1
+          )} MB). Max ${MAX_FILE_MB} MB per file.`
+        );
+        continue;
+      }
+      valid.push(file);
+    }
+
+    if (problems.length) {
+      setError(problems.join(" "));
+    } else {
+      setError(null);
+    }
+
+    return valid;
+  };
+
+  const processFilesAndExtract = async (files: File[]) => {
+    const fileArray = files;
     if (!fileArray.length) return;
+
+    setHasUploadedFile(true); // ✅ at least one file has been given
 
     setLoadingAction("file");
     setStatus("Reading files and extracting text…");
@@ -391,6 +466,7 @@ export default function CapturePage() {
 
     try {
       let combinedText = "";
+      const stats: FileMeta[] = [];
 
       for (const file of fileArray) {
         const fd = new FormData();
@@ -408,13 +484,32 @@ export default function CapturePage() {
         const extracted: string = data.text || "";
         if (!extracted.trim()) continue;
 
+        const meta: FileMeta | undefined = data.meta
+          ? {
+              fileName: data.meta.fileName || file.name,
+              fileType: data.meta.fileType || "other",
+              pageCount: data.meta.pageCount,
+              charCount: data.meta.charCount ?? extracted.length,
+            }
+          : {
+              fileName: file.name,
+              fileType: "other",
+              charCount: extracted.length,
+            };
+
+        stats.push(meta);
+
         combinedText += `\n\n----- FILE: ${file.name} -----\n\n${extracted}`;
       }
 
       if (!combinedText.trim()) {
         setError("No readable text found in the uploaded file(s).");
+        setFilePreview("");
+        setFileStats([]);
         return;
       }
+
+      setFileStats(stats);
 
       // Update preview + transcript
       setFilePreview(
@@ -452,7 +547,10 @@ export default function CapturePage() {
     const files = e.dataTransfer.files;
     if (!files || !files.length) return;
 
-    await processFilesAndExtract(files);
+    const valid = validateFiles(files);
+    if (!valid.length) return;
+
+    await processFilesAndExtract(valid);
   };
 
   const handleGenerateWhatsApp = () => {
@@ -745,6 +843,10 @@ export default function CapturePage() {
     setOriginalRows(null);
     setIsTransliterated(false);
     setLoadingAction(null);
+    setHasUploadedFile(false); // 🔄 reset
+    setFilePreview("");
+    setFileStats([]);
+    setWhatsAppText("");
   };
 
   const isBusy = isListening || isExtracting || loadingAction !== null;
@@ -764,6 +866,8 @@ export default function CapturePage() {
       ? "Extracting HR fields from conversation…"
       : loadingAction === "transliterate"
       ? "Converting Hindi text to English letters…"
+      : loadingAction === "file"
+      ? "Reading files and pulling text…"
       : isListening
       ? "Listening…"
       : "";
@@ -820,7 +924,7 @@ export default function CapturePage() {
             <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
                 onClick={startListening}
-                disabled={!isSupported || isListening}
+                disabled={(!isSupported || isListening)}
                 className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
               >
                 {isListening ? (
@@ -839,7 +943,7 @@ export default function CapturePage() {
               </button>
               <button
                 onClick={handleReset}
-                disabled={isBusy || (!transcript && !rows.length)}
+                disabled={isBusy || (!transcript && !rows.length && !filePreview)}
                 className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 border border-slate-700 disabled:opacity-50"
               >
                 ↺ Clear
@@ -940,12 +1044,18 @@ export default function CapturePage() {
                   onDrop={handleDrop}
                 >
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-200 font-medium">
-                        Upload transcripts / JD
-                      </span>
-                      <span className="text-slate-400">
-                        (PDF, DOCX, TXT — multiple files allowed)
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-slate-200 font-medium">
+                          Upload transcripts / JD
+                        </span>
+                        <span className="text-slate-400">
+                        (DOCX, TXT — multiple files allowed; PDF coming soon)
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500">
+                        Max {MAX_FILE_MB} MB per file. Drag & drop or click to
+                        browse.
                       </span>
                     </div>
                     <label className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 border border-slate-600 text-[11px] text-slate-100">
@@ -953,7 +1063,7 @@ export default function CapturePage() {
                       <input
                         type="file"
                         multiple
-                        accept=".pdf,.docx,.txt"
+                        accept=".docx,.txt"
                         onChange={handleFileUpload}
                         className="hidden"
                       />
@@ -964,6 +1074,43 @@ export default function CapturePage() {
                     notes – we&apos;ll read everything and extract HR fields
                     automatically.
                   </p>
+
+                  {fileStats.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/70 p-2 space-y-1">
+                      <div className="flex justify-between items-center text-[10px] text-slate-300">
+                        <span className="font-semibold">
+                          Files processed: {fileStats.length}
+                        </span>
+                        <span className="text-slate-500">
+                          Total chars:{" "}
+                          {fileStats
+                            .reduce((sum, f) => sum + (f.charCount || 0), 0)
+                            .toLocaleString()}
+                        </span>
+                      </div>
+                      <ul className="space-y-1">
+                        {fileStats.map((f) => (
+                          <li
+                            key={f.fileName + f.charCount}
+                            className="flex justify-between items-center text-[10px] text-slate-300"
+                          >
+                            <span className="truncate max-w-[55%]">
+                              {f.fileName}
+                            </span>
+                            <span className="flex items-center gap-2 text-slate-400">
+                              <span className="uppercase">
+                                {f.fileType || "file"}
+                              </span>
+                              {typeof f.pageCount === "number" && (
+                                <span>{f.pageCount} pages</span>
+                              )}
+                              <span>{f.charCount.toLocaleString()} chars</span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {/* Optional preview */}
@@ -1149,18 +1296,6 @@ export default function CapturePage() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-2 py-2 align-top">
-                                <span
-                                  className={categoryBadgeClass(row.category)}
-                                >
-                                  {row.category || "—"}
-                                </span>
-                                {isLowConf && (
-                                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-400/60 px-1.5 py-[1px] text-[9px] text-amber-200">
-                                    ⬇ Low conf
-                                  </span>
-                                )}
-                              </td>
                               <td className="px-2 py-2 align-top text-slate-100">
                                 <input
                                   className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-1 py-[3px] text-[11px] text-slate-100 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/80"
@@ -1174,6 +1309,11 @@ export default function CapturePage() {
                                 >
                                   {row.category || "—"}
                                 </span>
+                                {isLowConf && (
+                                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-400/60 px-1.5 py-[1px] text-[9px] text-amber-200">
+                                    ⬇ Low conf
+                                  </span>
+                                )}
                               </td>
                               <td className="px-2 py-2 align-top text-slate-300">
                                 {row.confidence !== undefined

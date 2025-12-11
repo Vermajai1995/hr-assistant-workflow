@@ -23,38 +23,43 @@ export async function POST(req: Request) {
 
     let text = "";
 
+    // ---------- Explicitly block PDF for now ----------
     if (name.endsWith(".pdf")) {
-      // ---- PDF via pdfjs-dist ----
-      const pdfjsModule: any = await import("pdfjs-dist");
-      const pdfjs = pdfjsModule.default || pdfjsModule;
+      return NextResponse.json(
+        {
+          error:
+            "PDF parsing is not supported in this prototype. " +
+            "Please export your JD / transcript as DOCX or TXT and upload again.",
+          text: "",
+        },
+        { status: 400 }
+      );
+    }
 
-      // In Node environment workers generally not needed for simple text extraction
-      if (pdfjs.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerSrc = "";
-      }
-
-      const loadingTask = pdfjs.getDocument({ data: buffer });
-      const pdf = await loadingTask.promise;
-
-      let collected = "";
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        const strings = content.items.map((item: any) => item.str);
-        collected += strings.join(" ") + "\n";
-      }
-
-      text = collected.trim();
-    } else if (name.endsWith(".docx")) {
-      // ---- DOCX via mammoth ----
+    // ---------- DOCX via mammoth ----------
+    if (name.endsWith(".docx")) {
       const result = await mammoth.extractRawText({ buffer });
       text = result.value || "";
-    } else if (name.endsWith(".txt")) {
-      // ---- Plain text ----
+    }
+    // ---------- Plain text ----------
+    else if (name.endsWith(".txt")) {
       text = buffer.toString("utf8");
-    } else {
+    }
+    // ---------- Unsupported ----------
+    else {
       return NextResponse.json(
-        { error: "Only PDF, DOCX or TXT are supported." },
+        {
+          error:
+            "Unsupported file type. Please upload DOCX or TXT (PDF coming soon).",
+          text: "",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!text.trim()) {
+      return NextResponse.json(
+        { error: "No readable text found in this file.", text: "" },
         { status: 400 }
       );
     }
