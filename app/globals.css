@@ -112,3 +112,127 @@ button:disabled {
 
 /* helper */
 .text-muted { color: var(--muted); }
+
+/* -------------------------------------------
+   Component tokens (common)
+-------------------------------------------- */
+:root {
+  --btn-primary-bg: linear-gradient(90deg, #34d399, #22d3ee);
+  --btn-primary-fg: #052e2b;
+
+  --btn-secondary-bg: rgba(15, 23, 42, 0.75);
+  --btn-secondary-fg: #e5e7eb;
+
+  --btn-ghost-bg: rgba(2, 6, 23, 0.35);
+  --btn-ghost-fg: #e5e7eb;
+
+  --ring: rgba(52, 211, 153, 0.35);
+
+  --table-head-bg: rgba(2, 6, 23, 0.55);
+  --row-odd: rgba(2, 6, 23, 0.35);
+  --row-even: rgba(2, 6, 23, 0.20);
+  --row-hover: rgba(15, 23, 42, 0.45);
+
+  --danger-bg: rgba(239, 68, 68, 0.10);
+  --danger-border: rgba(239, 68, 68, 0.35);
+  --danger-fg: rgba(254, 202, 202, 0.95);
+}
+
+/* Light overrides */
+:root[data-theme="light"],
+:root[data-theme="smart-light"] {
+  --btn-secondary-bg: rgba(241, 245, 249, 1);
+  --btn-secondary-fg: #0f172a;
+
+  --btn-ghost-bg: rgba(241, 245, 249, 0.75);
+  --btn-ghost-fg: #0f172a;
+
+  --ring: rgba(2, 132, 199, 0.25);
+
+  --table-head-bg: rgba(241, 245, 249, 1);
+  --row-odd: rgba(248, 250, 252, 1);
+  --row-even: rgba(241, 245, 249, 0.9);
+  --row-hover: rgba(226, 232, 240, 0.9);
+
+  --danger-bg: rgba(239, 68, 68, 0.08);
+  --danger-border: rgba(239, 68, 68, 0.25);
+  --danger-fg: rgba(127, 29, 29, 0.95);
+}
+
+/* -------------------------------------------
+   Reusable utility classes
+-------------------------------------------- */
+.ui-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px var(--shadow);
+}
+
+.ui-card2 {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px var(--shadow);
+}
+
+.ui-input {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  outline: none;
+}
+.ui-input:focus {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.ui-select {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  outline: none;
+}
+.ui-select:focus {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.ui-btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.20);
+}
+
+.ui-btn-secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border: 1px solid var(--border);
+}
+
+.ui-btn-ghost {
+  background: var(--btn-ghost-bg);
+  color: var(--btn-ghost-fg);
+  border: 1px solid var(--border);
+}
+
+.ui-tabbar {
+  background: var(--tabbar);
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-table-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.ui-thead {
+  background: var(--table-head-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-row-odd { background: var(--row-odd); }
+.ui-row-even { background: var(--row-even); }
+.ui-row-hover:hover { background: var(--row-hover); }
+
+.ui-danger {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-fg);
+}
