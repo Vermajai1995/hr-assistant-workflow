@@ -135,6 +135,7 @@ console.log("BASE:", OPENROUTER_BASE_URL);
           },
         ],
         temperature: 0.1,
+        max_tokens: 1200,          // 800–1500 safe for this task
       }),
     });
 
