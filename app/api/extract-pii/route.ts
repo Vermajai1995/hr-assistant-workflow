@@ -112,12 +112,17 @@ VERY IMPORTANT:
 `;
 
   try {
+    console.log("OPENROUTER_KEY_PRESENT:", !!OPENROUTER_API_KEY);
+console.log("MODEL:", OPENROUTER_MODEL);
+console.log("BASE:", OPENROUTER_BASE_URL);
+
+    const origin = req.headers.get("origin") || "http://localhost:3000";
     const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        "HTTP-Referer": "https://your-app-url.example", // optional
+        "HTTP-Referer": origin,
         "X-Title": "Speech PII + HR Requirement Extractor",
       },
       body: JSON.stringify({
@@ -141,11 +146,14 @@ VERY IMPORTANT:
         {
           error: "Upstream model error",
           upstreamStatus: response.status,
-          upstreamBody: body?.slice(0, 1200), // enough to see the real reason
+          upstreamBody: body?.slice(0, 2000),
+          model: OPENROUTER_MODEL,
+          baseUrl: OPENROUTER_BASE_URL,
         },
         { status: 500 }
       );
     }
+    
     
 
     const data = await response.json();
