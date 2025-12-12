@@ -136,11 +136,17 @@ VERY IMPORTANT:
     if (!response.ok) {
       const body = await response.text();
       console.error("OpenRouter error:", response.status, body);
+    
       return NextResponse.json(
-        { error: "Upstream model error" },
+        {
+          error: "Upstream model error",
+          upstreamStatus: response.status,
+          upstreamBody: body?.slice(0, 1200), // enough to see the real reason
+        },
         { status: 500 }
       );
     }
+    
 
     const data = await response.json();
     const content =

@@ -9,9 +9,6 @@ import React, {
   ChangeEvent,
 } from "react";
 
-const MAX_FILE_MB = 5;
-const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
-
 type PiiRow = {
   field: string;
   value: string;
@@ -23,13 +20,6 @@ type PiiRow = {
 type PiiRowExt = PiiRow & { id: string };
 
 type TabId = "transcript" | "pii";
-
-type FileMeta = {
-  fileName: string;
-  fileType: "pdf" | "docx" | "txt" | "other";
-  pageCount?: number;
-  charCount: number;
-};
 
 // Minimal SpeechRecognition type (enough for our usage)
 interface SpeechRecognitionEvent extends Event {
@@ -112,28 +102,24 @@ const CORE_FIELDS: string[] = [
   "Work Mode",
 ];
 
-// OLD
-// type ThemeOption = "light" | "dark" | "system";
-// NEW
+// theme: sirf dark + system
 type ThemeOption = "dark" | "system";
 
-type LoadingAction = null | "extract" | "transliterate" | "file";
+type LoadingAction = null | "extract" | "transliterate";
 
-export default function CapturePage() {
-  const SAMPLE_TRANSCRIPT =
+// Sample transcript – agar user isko change nahi karega to API call block karenge
+const SAMPLE_TRANSCRIPT =
   "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.";
 
-  // Hydration fix: only render full UI after mount
+export default function CapturePage() {
+  // Hydration fix
   const [mounted, setMounted] = useState(false);
 
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [status, setStatus] = useState<string>("Idle");
-  
-  const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
-// ...
-const [hasUploadedFile, setHasUploadedFile] = useState(false);
 
+  const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
 
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -156,12 +142,102 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
 
   // Global loading state for overlay spinner
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [filePreview, setFilePreview] = useState<string>("");
-  const [fileStats, setFileStats] = useState<FileMeta[]>([]);
+
   const [whatsAppText, setWhatsAppText] = useState<string>("");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
+  // file upload states
+const [fileName, setFileName] = useState<string | null>(null);
+const [fileStatus, setFileStatus] = useState<string | null>(null);
+const stopExtractTimeoutRef = useRef<number | null>(null);
+const autoExtractedThisSessionRef = useRef(false);
+
+
+const handleFileChange = async (
+  e: React.ChangeEvent<HTMLInputElement>
+) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  setError(null);
+  setFileName(file.name);
+  setFileStatus("Reading file...");
+  setTranscript("");
+
+  try {
+    // ---------- PDF ----------
+    if (file.type === "application/pdf") {
+      const pdfjsLib = await import("pdfjs-dist");
+      const pdfAny: any = pdfjsLib;
+
+      
+      const v = pdfAny.version;
+
+      const candidates = [
+        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.mjs`,
+        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.js`,
+      ];
+
+      pdfAny.GlobalWorkerOptions.workerSrc = candidates[0];
+
+
+      const arrayBuffer = await file.arrayBuffer();
+      const typedArray = new Uint8Array(arrayBuffer);
+
+      const loadingTask = pdfAny.getDocument({ data: typedArray });
+      const pdf = await loadingTask.promise;
+
+      let fullText = "";
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const content = await page.getTextContent();
+        const strings = (content.items as any[])
+          .map((item) => (item as any).str || "")
+          .join(" ");
+        fullText += strings + "\n";
+      }
+
+      setTranscript(fullText.trim());
+      setFileStatus("PDF parsed successfully ✅");
+      return;
+    }
+
+    // ---------- DOCX ----------
+    if (
+      file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      const mammoth = await import("mammoth/mammoth.browser");
+      const arrayBuffer = await file.arrayBuffer();
+      const { value } = await mammoth.extractRawText({ arrayBuffer });
+
+      setTranscript(value.trim());
+      setFileStatus("DOCX parsed successfully ✅");
+      return;
+    }
+
+    // ---------- TXT ----------
+    if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+      const text = await file.text();
+      setTranscript(text.trim());
+      setFileStatus("Text file loaded ✅");
+      return;
+    }
+
+    // ---------- fallback ----------
+    const text = await file.text();
+    setTranscript(text.trim());
+    setFileStatus(
+      "Unknown file type – attempted to read as text. Please review."
+    );
+  } catch (err) {
+    console.error("File parse error:", err);
+    setFileStatus(
+      "⚠️ Failed to parse file. Paste the text manually if needed."
+    );
+  }
+};
+
 
   useEffect(() => {
     setMounted(true);
@@ -298,10 +374,18 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
         // ignore
       }
     };
-  }, [lang, isListening, mounted]);
+  }, [lang, mounted]);
 
   const startListening = () => {
     if (!recognitionRef.current) return;
+
+    autoExtractedThisSessionRef.current = false;
+
+    if (stopExtractTimeoutRef.current) {
+      window.clearTimeout(stopExtractTimeoutRef.current);
+      stopExtractTimeoutRef.current = null;
+    }
+
     // Fresh session: clear everything + transliteration cache
     setRows([]);
     setHrBrief("");
@@ -309,8 +393,6 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
     setJdText("");
     setOriginalRows(null);
     setIsTransliterated(false);
-    setFilePreview("");
-    setFileStats([]);
     setWhatsAppText("");
     setError(null);
 
@@ -322,44 +404,31 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
       setError("Could not start microphone. Please check browser permissions.");
     }
   };
-
-  const stopListening = () => {
-    if (!recognitionRef.current) return;
-    try {
-      recognitionRef.current.stop();
-      setStatus("Stopping…");
-      setTimeout(() => {
-        if (transcript.trim().length > 0) {
-          handleExtractPII(true);
-        }
-      }, 600);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  
 
   const handleExtractPII = async (autoFromMic = false) => {
-    
+    if (isExtracting || loadingAction) return;
+
     const text = transcript.trim();
 
-  // 🔒 Guard: default sample + no file = don't waste API
-  if (!hasUploadedFile && text === SAMPLE_TRANSCRIPT.trim()) {
-    setError(
-      "Please upload a file or type/paste your own conversation before extracting."
-    );
-    setStatus("Idle");
-    return;
-  }
+    // Guard: agar sirf default sample hai to API mat hit karo
+    if (text === SAMPLE_TRANSCRIPT.trim()) {
+      setError(
+        "Please speak something or paste your own conversation before extracting."
+      );
+      setStatus("Idle");
+      return;
+    }
 
-  if (!text) {
-    setError("Please speak something first or paste a conversation.");
-    return;
-  }
+    if (!text) {
+      setError("Please speak something first or paste a conversation.");
+      return;
+    }
 
-  setIsExtracting(true);
-  setLoadingAction("extract");
-  setError(null);
-  setStatus("Extracting structured HR details…");
+    setIsExtracting(true);
+    setLoadingAction("extract");
+    setError(null);
+    setStatus("Extracting structured HR details…");
 
     // Clear old summaries & transliteration state
     setHrBrief("");
@@ -407,151 +476,41 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
     }
   };
 
-  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || !files.length) return;
 
-    const validFiles = validateFiles(files);
-    if (!validFiles.length) {
-      e.target.value = "";
-      return;
-    }
+ const stopListening = () => {
+  if (!recognitionRef.current) return;
 
-    await processFilesAndExtract(validFiles);
-    e.target.value = "";
-  };
-
-  const validateFiles = (files: FileList | File[]): File[] => {
-    const arr = Array.from(files);
-    const acceptedExtensions = [".pdf", ".docx", ".txt"];
-
-    const valid: File[] = [];
-    const problems: string[] = [];
-
-    for (const file of arr) {
-      const lower = file.name.toLowerCase();
-      if (!acceptedExtensions.some((ext) => lower.endsWith(ext))) {
-        problems.push(`"${file.name}": unsupported type (only PDF, DOCX, TXT).`);
-        continue;
-      }
-      if (file.size > MAX_FILE_BYTES) {
-        problems.push(
-          `"${file.name}": too large (${(file.size / (1024 * 1024)).toFixed(
-            1
-          )} MB). Max ${MAX_FILE_MB} MB per file.`
-        );
-        continue;
-      }
-      valid.push(file);
-    }
-
-    if (problems.length) {
-      setError(problems.join(" "));
-    } else {
-      setError(null);
-    }
-
-    return valid;
-  };
-
-  const processFilesAndExtract = async (files: File[]) => {
-    const fileArray = files;
-    if (!fileArray.length) return;
-
-    setHasUploadedFile(true); // ✅ at least one file has been given
-
-    setLoadingAction("file");
-    setStatus("Reading files and extracting text…");
-    setError(null);
-
+  // ✅ if already extracting or already auto-extracted once, just stop mic
+  if (autoExtractedThisSessionRef.current) {
     try {
-      let combinedText = "";
-      const stats: FileMeta[] = [];
+      recognitionRef.current.stop();
+      setStatus("Stopping…");
+    } catch {}
+    return;
+  }
 
-      for (const file of fileArray) {
-        const fd = new FormData();
-        fd.append("file", file);
+  // clear any previous timer
+  if (stopExtractTimeoutRef.current) {
+    window.clearTimeout(stopExtractTimeoutRef.current);
+    stopExtractTimeoutRef.current = null;
+  }
 
-        const res = await fetch("/api/upload-pii", {
-          method: "POST",
-          body: fd,
-        });
+  try {
+    recognitionRef.current.stop();
+    setStatus("Stopping…");
 
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(data.error || `Failed on file: ${file.name}`);
+    stopExtractTimeoutRef.current = window.setTimeout(() => {
+      // ✅ run auto-extract only once per listening session
+      if (autoExtractedThisSessionRef.current) return;
+      if (!transcript.trim()) return;
 
-        const extracted: string = data.text || "";
-        if (!extracted.trim()) continue;
-
-        const meta: FileMeta | undefined = data.meta
-          ? {
-              fileName: data.meta.fileName || file.name,
-              fileType: data.meta.fileType || "other",
-              pageCount: data.meta.pageCount,
-              charCount: data.meta.charCount ?? extracted.length,
-            }
-          : {
-              fileName: file.name,
-              fileType: "other",
-              charCount: extracted.length,
-            };
-
-        stats.push(meta);
-
-        combinedText += `\n\n----- FILE: ${file.name} -----\n\n${extracted}`;
-      }
-
-      if (!combinedText.trim()) {
-        setError("No readable text found in the uploaded file(s).");
-        setFilePreview("");
-        setFileStats([]);
-        return;
-      }
-
-      setFileStats(stats);
-
-      // Update preview + transcript
-      setFilePreview(
-        combinedText.slice(0, 600) + (combinedText.length > 600 ? "..." : "")
-      );
-      setTranscript(combinedText.trim());
-
-      // Now call normal extraction
-      await handleExtractPII(false);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "File processing error");
-    } finally {
-      setLoadingAction(null);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    const files = e.dataTransfer.files;
-    if (!files || !files.length) return;
-
-    const valid = validateFiles(files);
-    if (!valid.length) return;
-
-    await processFilesAndExtract(valid);
-  };
+      autoExtractedThisSessionRef.current = true;
+      handleExtractPII(true);
+    }, 500);
+  } catch (e) {
+    console.error(e);
+  }
+};
 
   const handleGenerateWhatsApp = () => {
     if (!rows.length) {
@@ -616,7 +575,6 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
   const handleTransliterate = async () => {
     try {
       if (isTransliterated) return; // Already done
-
       if (!rows.length) return;
 
       setLoadingAction("transliterate");
@@ -766,7 +724,7 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
     }
   };
 
-  // HR brief generator (uses current rows)
+  // HR brief generator
   const handleGenerateBrief = () => {
     if (!rows.length) {
       setError("Extract fields first, then generate the HR brief.");
@@ -812,7 +770,7 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
     }
   };
 
-  // JD generator (short job description)
+  // JD generator
   const handleGenerateJD = () => {
     if (!rows.length) {
       setError("Extract fields first to generate a job description.");
@@ -843,15 +801,12 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
     setOriginalRows(null);
     setIsTransliterated(false);
     setLoadingAction(null);
-    setHasUploadedFile(false); // 🔄 reset
-    setFilePreview("");
-    setFileStats([]);
     setWhatsAppText("");
   };
 
   const isBusy = isListening || isExtracting || loadingAction !== null;
 
-  // Hydration-safe: show simple loading before client mount
+  // Hydration-safe
   if (!mounted) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-20 text-center text-xs text-slate-400">
@@ -866,8 +821,6 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
       ? "Extracting HR fields from conversation…"
       : loadingAction === "transliterate"
       ? "Converting Hindi text to English letters…"
-      : loadingAction === "file"
-      ? "Reading files and pulling text…"
       : isListening
       ? "Listening…"
       : "";
@@ -924,7 +877,7 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
             <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
                 onClick={startListening}
-                disabled={(!isSupported || isListening)}
+                disabled={!isSupported || isListening}
                 className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
               >
                 {isListening ? (
@@ -943,7 +896,7 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
               </button>
               <button
                 onClick={handleReset}
-                disabled={isBusy || (!transcript && !rows.length && !filePreview)}
+                disabled={isBusy || (!transcript && !rows.length)}
                 className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 border border-slate-700 disabled:opacity-50"
               >
                 ↺ Clear
@@ -990,7 +943,7 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
           </div>
         )}
 
-        {/* Main card: tabs + content */}
+        {/* Main card */}
         <div className="rounded-3xl border border-slate-800/90 bg-slate-950/70 backdrop-blur-xl shadow-xl shadow-black/40 overflow-hidden">
           {/* Tabs */}
           <div className="flex border-b border-slate-800 bg-slate-950/80">
@@ -1029,104 +982,35 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
                       : "empty"}
                   </span>
                 </div>
+                <div className="space-y-2">
+  <label className="text-xs text-slate-400">
+    Upload transcript / JD (PDF, DOCX, TXT)
+  </label>
 
-                {/* FILE UPLOAD + DRAG/DROP */}
-                <div
-                  className={`mb-2 rounded-xl border px-3 py-2 text-[11px] flex flex-col gap-2 cursor-pointer transition-colors
-    ${
-      dragActive
-        ? "border-emerald-400 bg-slate-900/60"
-        : "border-slate-700 bg-slate-950/40"
-    }
-  `}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-slate-200 font-medium">
-                          Upload transcripts / JD
-                        </span>
-                        <span className="text-slate-400">
-                        (DOCX, TXT — multiple files allowed; PDF coming soon)
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-500">
-                        Max {MAX_FILE_MB} MB per file. Drag & drop or click to
-                        browse.
-                      </span>
-                    </div>
-                    <label className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 border border-slate-600 text-[11px] text-slate-100">
-                      📄 Choose files
-                      <input
-                        type="file"
-                        multiple
-                        accept=".docx,.txt"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Tip: Drop client requirement PDFs, JD docs or saved call
-                    notes – we&apos;ll read everything and extract HR fields
-                    automatically.
-                  </p>
+  <div className="flex items-center gap-3">
+    <input
+      type="file"
+      accept=".pdf,.docx,.txt"
+      onChange={handleFileChange}
+      className="text-xs"
+    />
+  </div>
 
-                  {fileStats.length > 0 && (
-                    <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/70 p-2 space-y-1">
-                      <div className="flex justify-between items-center text-[10px] text-slate-300">
-                        <span className="font-semibold">
-                          Files processed: {fileStats.length}
-                        </span>
-                        <span className="text-slate-500">
-                          Total chars:{" "}
-                          {fileStats
-                            .reduce((sum, f) => sum + (f.charCount || 0), 0)
-                            .toLocaleString()}
-                        </span>
-                      </div>
-                      <ul className="space-y-1">
-                        {fileStats.map((f) => (
-                          <li
-                            key={f.fileName + f.charCount}
-                            className="flex justify-between items-center text-[10px] text-slate-300"
-                          >
-                            <span className="truncate max-w-[55%]">
-                              {f.fileName}
-                            </span>
-                            <span className="flex items-center gap-2 text-slate-400">
-                              <span className="uppercase">
-                                {f.fileType || "file"}
-                              </span>
-                              {typeof f.pageCount === "number" && (
-                                <span>{f.pageCount} pages</span>
-                              )}
-                              <span>{f.charCount.toLocaleString()} chars</span>
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+  {fileName && (
+    <p className="text-[11px] text-slate-400">
+      Selected: <span className="font-medium">{fileName}</span>
+    </p>
+  )}
 
-                {/* Optional preview */}
-                {filePreview && (
-                  <div className="mb-3 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-300 max-h-40 overflow-y-auto">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-slate-100">
-                        File text preview
-                      </span>
-                      <span className="text-[10px] text-slate-500">
-                        First few lines only
-                      </span>
-                    </div>
-                    <pre className="whitespace-pre-wrap">{filePreview}</pre>
-                  </div>
-                )}
+  {fileStatus && (
+    <p className="text-[11px] text-emerald-400">{fileStatus}</p>
+  )}
+
+  <p className="text-[10px] text-slate-500">
+    Tip: If parsing looks odd, you can edit the text below before extraction.
+  </p>
+</div>
+
 
                 <textarea
                   className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
@@ -1150,8 +1034,8 @@ const [hasUploadedFile, setHasUploadedFile] = useState(false);
                     <span>Sync &amp; extract HR fields</span>
                   </button>
                   <p className="text-[10px] text-slate-500 max-w-xs text-right">
-                    Tip: You can also paste Zoom/Meet transcript, WhatsApp
-                    export, or notes from a phone call.
+                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or
+                    notes from a phone call.
                   </p>
                 </div>
               </div>
@@ -1556,7 +1440,7 @@ function isSensitiveRow(row: PiiRow): boolean {
   return false;
 }
 
-// ---------- summary builders (pure functions) ----------
+// ---------- summary builders ----------
 
 function getFieldFromRows(rows: PiiRowExt[], name: string): string | undefined {
   return rows.find((r) => r.field === name)?.value;
