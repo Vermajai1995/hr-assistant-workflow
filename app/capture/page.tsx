@@ -102,8 +102,7 @@ const CORE_FIELDS: string[] = [
   "Work Mode",
 ];
 
-// theme: sirf dark + system
-type ThemeOption = "dark" | "system";
+type ThemeOption = "dark" | "light" | "system";
 
 type LoadingAction = null | "extract" | "transliterate";
 
@@ -120,6 +119,8 @@ export default function CapturePage() {
   const [status, setStatus] = useState<string>("Idle");
 
   const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
+  const [hasTouchedTranscript, setHasTouchedTranscript] = useState(false);
+
 
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -247,38 +248,44 @@ const handleFileChange = async (
     if (!mounted) return;
     try {
       const saved = localStorage.getItem("theme");
-      if (saved === "dark" || saved === "system") {
+      if (saved === "dark" || saved === "light" || saved === "system") {
         setTheme(saved);
       } else {
         setTheme("dark");
       }
+      
     } catch {
       // ignore
     }
   }, [mounted]);
 
-  // Theme: apply to <html data-theme="">
   useEffect(() => {
     if (!mounted) return;
-    let final: "light" | "dark";
-
+  
+    const prefersDark =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+  
+    let finalTheme:
+      | "light"
+      | "dark"
+      | "smart-dark"
+      | "smart-light" = "dark";
+  
     if (theme === "system") {
-      const prefersDark =
-        typeof window !== "undefined" &&
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
-      final = prefersDark ? "dark" : "light";
+      finalTheme = prefersDark ? "smart-dark" : "smart-light";
     } else {
-      final = theme;
+      finalTheme = theme; // "dark" | "light"
     }
-
-    document.documentElement.setAttribute("data-theme", final);
+  
+    document.documentElement.setAttribute("data-theme", finalTheme);
+  
     try {
       localStorage.setItem("theme", theme);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [theme, mounted]);
+  
 
   // Sorted rows helpers
   const sortRows = (raw: PiiRow[]): PiiRowExt[] => {
@@ -359,6 +366,7 @@ const handleFileChange = async (
         finalTranscript += event.results[i][0].transcript + " ";
       }
       setTranscript(finalTranscript.trim());
+      setHasTouchedTranscript(true);
     };
 
     recognitionRef.current = recognition;
@@ -411,14 +419,14 @@ const handleFileChange = async (
 
     const text = transcript.trim();
 
-    // Guard: agar sirf default sample hai to API mat hit karo
-    if (text === SAMPLE_TRANSCRIPT.trim()) {
-      setError(
-        "Please speak something or paste your own conversation before extracting."
-      );
-      setStatus("Idle");
-      return;
-    }
+   
+    // ✅ Guard only for auto extraction (mic stop), not for manual button click
+if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
+  setError("Please speak something or paste your own conversation before extracting.");
+  setStatus("Idle");
+  return;
+}
+
 
     if (!text) {
       setError("Please speak something first or paste a conversation.");
@@ -829,7 +837,14 @@ const handleFileChange = async (
     <>
       <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
         {/* Top heading + actions card */}
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between shadow-lg shadow-emerald-500/10">
+        <div
+  className="rounded-2xl backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between shadow-lg"
+  style={{
+    background: "var(--card2)",
+    border: "1px solid var(--border)",
+    boxShadow: `0 10px 30px var(--shadow)`,
+  }}
+>
           <div className="space-y-1">
             <h1 className="text-lg sm:text-xl font-semibold">
               Capture hiring conversations
@@ -870,6 +885,7 @@ const handleFileChange = async (
                 className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
               >
                 <option value="dark">Dark</option>
+                <option value="light">Light</option>
                 <option value="system">Smart</option>
               </select>
             </div>
@@ -944,7 +960,13 @@ const handleFileChange = async (
         )}
 
         {/* Main card */}
-        <div className="rounded-3xl border border-slate-800/90 bg-slate-950/70 backdrop-blur-xl shadow-xl shadow-black/40 overflow-hidden">
+        <div
+  className="rounded-3xl backdrop-blur-xl shadow-xl overflow-hidden"
+  style={{
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+  }}
+>
           {/* Tabs */}
           <div className="flex border-b border-slate-800 bg-slate-950/80">
             <button
@@ -1049,9 +1071,17 @@ const handleFileChange = async (
 
                 <textarea
                   className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
+                  style={{
+                    background: "var(--input)",
+                    borderColor: "var(--border)",
+                    color: "var(--fg)",
+                  }}
                   placeholder=""
                   value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
+                  onChange={(e) => {
+                    setTranscript(e.target.value);
+                    setHasTouchedTranscript(true);
+                  }}                  
                   readOnly={isListening}
                 />
 

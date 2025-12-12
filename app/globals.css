@@ -1,31 +1,92 @@
 @import "tailwindcss";
 
-/* ------------------------------------------------------------------
-   Base Theme Variables
------------------------------------------------------------------- */
+/* -------------------------------------------
+   Theme tokens
+-------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #050b18;
+  --fg: #e5e7eb;
+  --muted: #94a3b8;
+
+  --card: rgba(2, 6, 23, 0.70);
+  --card2: rgba(15, 23, 42, 0.60);
+
+  --border: rgba(51, 65, 85, 0.70);
+  --input: rgba(2, 6, 23, 0.80);
+
+  --shadow: rgba(16, 185, 129, 0.12);
+
+  /* tabs */
+  --tabbar: rgba(2, 6, 23, 0.65);
+  --tab-active-bg: rgba(255, 255, 255, 0.06);
+  --tab-active-fg: #34d399; /* emerald */
+  --tab-inactive-fg: #94a3b8;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Light */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --fg: #0f172a;
+  --muted: #475569;
+
+  --card: #ffffff;
+  --card2: #ffffff;
+
+  --border: rgba(203, 213, 225, 1);
+  --input: #f8fafc;
+
+  --shadow: rgba(2, 132, 199, 0.12);
+
+  /* tabs */
+  --tabbar: #ffffff;
+  --tab-active-bg: #ffffff;
+  --tab-active-fg: #059669; /* emerald-600 */
+  --tab-inactive-fg: #475569;
 }
 
-/* Auto-detect dark mode (default Next.js behavior) */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Smart (hybrid) - dark base */
+:root[data-theme="smart-dark"] {
+  --bg: #030712;
+  --fg: #e5e7eb;
+  --muted: #a1a1aa;
+
+  --card: rgba(255, 255, 255, 0.06);
+  --card2: rgba(255, 255, 255, 0.08);
+
+  --border: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.06);
+
+  --shadow: rgba(34, 211, 238, 0.12);
+
+  --tabbar: rgba(255, 255, 255, 0.06);
+  --tab-active-bg: rgba(255, 255, 255, 0.10);
+  --tab-active-fg: #22d3ee;
+  --tab-inactive-fg: #a1a1aa;
 }
 
-/* ------------------------------------------------------------------
-   Base Reset
------------------------------------------------------------------- */
+/* Smart (hybrid) - light base */
+:root[data-theme="smart-light"] {
+  --bg: #f6f7fb;
+  --fg: #0f172a;
+  --muted: #475569;
+
+  --card: rgba(255, 255, 255, 0.85);
+  --card2: rgba(255, 255, 255, 0.92);
+
+  --border: rgba(148, 163, 184, 0.35);
+  --input: rgba(248, 250, 252, 0.9);
+
+  --shadow: rgba(16, 185, 129, 0.10);
+
+  --tabbar: rgba(255, 255, 255, 0.92);
+  --tab-active-bg: rgba(255, 255, 255, 1);
+  --tab-active-fg: #059669;
+  --tab-inactive-fg: #475569;
+}
+
+/* -------------------------------------------
+   Base
+-------------------------------------------- */
 *,
 *::before,
 *::after {
@@ -39,10 +100,9 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 button:disabled {
@@ -50,79 +110,5 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* ------------------------------------------------------------------
-   MANUAL THEME OVERRIDES (Light / Dark Switch)
------------------------------------------------------------------- */
-
-:root[data-theme="light"] {
-  --background: #f5f7fa;
-  --foreground: #0a0a0a;
-}
-
-:root[data-theme="dark"] {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-}
-
-/* ------------------------------------------------------------------
-   LIGHT THEME FIXES (Better contrast + readable UI)
------------------------------------------------------------------- */
-
-/* 1) Light mode — table row backgrounds */
-html[data-theme="light"] .odd\:bg-slate-950\/70,
-html[data-theme="light"] .even\:bg-slate-950\/40,
-html[data-theme="light"] .bg-slate-950\/40,
-html[data-theme="light"] .bg-slate-950\/70 {
-  background-color: #eef1f5 !important; /* clean light grey */
-}
-
-/* 2) Light mode — darken all low-contrast text */
-html[data-theme="light"] .text-slate-300 {
-  color: #1f2937 !important; /* darker slate */
-}
-
-html[data-theme="light"] .text-slate-400,
-html[data-theme="light"] .text-slate-500,
-html[data-theme="light"] .text-slate-600 {
-  color: #111827 !important; /* near-black for visibility */
-}
-
-/* 3) Light mode — snippet column fix */
-html[data-theme="light"] td.text-slate-400,
-html[data-theme="light"] td .text-slate-400 {
-  color: #111827 !important;
-}
-
-/* 4) Light mode — card background cleanup */
-html[data-theme="light"] .bg-slate-900\/60,
-html[data-theme="light"] .bg-slate-900\/80,
-html[data-theme="light"] .bg-slate-950\/60,
-html[data-theme="light"] .bg-slate-950\/70 {
-  background-color: #ffffff !important;
-  backdrop-filter: none !important;
-}
-
-/* 5) Light mode — borders softened */
-html[data-theme="light"] .border-slate-800,
-html[data-theme="light"] .border-slate-800\/70,
-html[data-theme="light"] .border-slate-800\/80,
-html[data-theme="light"] .border-slate-700 {
-  border-color: #d1d5db !important; /* light grey border */
-}
-
-/* 6) Light mode — tabs background fix */
-html[data-theme="light"] .bg-slate-900 {
-  background-color: #ffffff !important;
-}
-
-/* 7) Light mode — input fields contrast boost */
-html[data-theme="light"] input,
-html[data-theme="light"] textarea {
-  background-color: #f9fafb !important;
-  border-color: #d1d5db !important;
-  color: #111827 !important;
-}
-
-/* ------------------------------------------------------------------
-   Dark theme stays untouched (Tailwind handles it)
------------------------------------------------------------------- */
+/* helper */
+.text-muted { color: var(--muted); }
