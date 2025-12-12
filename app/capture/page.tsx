@@ -987,14 +987,46 @@ const handleFileChange = async (
     Upload transcript / JD (PDF, DOCX, TXT)
   </label>
 
-  <div className="flex items-center gap-3">
-    <input
-      type="file"
-      accept=".pdf,.docx,.txt"
-      onChange={handleFileChange}
-      className="text-xs"
-    />
-  </div>
+  <div className="flex items-center gap-3 flex-wrap">
+  {/* hidden native input */}
+  <input
+    id="upload-transcript"
+    type="file"
+    accept=".pdf,.docx,.txt"
+    onChange={handleFileChange}
+    className="hidden"
+  />
+
+  {/* custom button */}
+  <label
+    htmlFor="upload-transcript"
+    className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold
+               text-slate-950 cursor-pointer select-none
+               bg-gradient-to-r from-emerald-400 to-cyan-400
+               shadow-lg shadow-emerald-500/25
+               hover:shadow-emerald-500/40 hover:brightness-105
+               focus:outline-none focus:ring-2 focus:ring-emerald-300/70
+               active:scale-[0.98] transition"
+  >
+    📄 Upload file
+    <span className="text-[10px] font-bold opacity-80">PDF/DOCX/TXT</span>
+  </label>
+
+  {/* filename chip */}
+  <span
+    className="inline-flex items-center gap-2 rounded-full border border-slate-700
+               bg-slate-950/60 px-3 py-2 text-[11px] text-slate-200"
+    title={fileName || "No file chosen"}
+  >
+    <span className="h-2 w-2 rounded-full bg-slate-500" />
+    {fileName ? (
+      <span className="max-w-[220px] sm:max-w-[320px] truncate">{fileName}</span>
+    ) : (
+      <span className="text-slate-400">No file chosen</span>
+    )}
+  </span>
+</div>
+
 
   {fileName && (
     <p className="text-[11px] text-slate-400">
@@ -1002,9 +1034,12 @@ const handleFileChange = async (
     </p>
   )}
 
-  {fileStatus && (
-    <p className="text-[11px] text-emerald-400">{fileStatus}</p>
-  )}
+{fileStatus && (
+  <p className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 inline-block">
+    {fileStatus}
+  </p>
+)}
+
 
   <p className="text-[10px] text-slate-500">
     Tip: If parsing looks odd, you can edit the text below before extraction.
