@@ -15,11 +15,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-850 to-slate-950 text-slate-100">
-        {/* HEADER */}
-        <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-lg">
-          <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
-            {/* LOGO */}
-            <div className="h-9 w-9 rounded-xl overflow-hidden border border-slate-700 shadow">
+        {/* HEADER (sticky) */}
+        <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-lg">
+          <div className="mx-auto max-w-4xl px-4 py-2.5 flex items-center gap-3">
+            {/* LOGO (clickable) */}
+            <a
+              href="https://vermajai1995.vercel.app/"
+              className="h-9 w-9 rounded-xl overflow-hidden border border-slate-700 shadow hover:opacity-90 transition"
+              title="Open portfolio"
+            >
               <Image
                 src="/logo.png"
                 alt="Logo"
@@ -27,7 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 height={40}
                 className="object-cover"
               />
-            </div>
+            </a>
 
             {/* TITLE BLOCK */}
             <div className="flex flex-col leading-tight">
@@ -42,13 +46,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </header>
 
         {/* MAIN */}
-        <main className="flex-1">{children}
+        <main className="flex-1">
+          {children}
 
-        {/* Feedback Widget Loader */}
-        <Script
-  src="https://feedback-jai-patel.vercel.app/?from=PII+Assistant"
-  strategy="afterInteractive"
-/>
+          {/* Feedback Widget Loader */}
+          <Script
+            src="https://feedback-jai-patel.vercel.app/?from=PII+Assistant"
+            strategy="afterInteractive"
+          />
         </main>
 
         {/* FOOTER */}
