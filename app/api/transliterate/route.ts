@@ -36,6 +36,8 @@ Example output: ["Bhole Ram", "Lucknow"]
       body: JSON.stringify({
         model: process.env.OPENROUTER_MODEL || "openai/gpt-4.1-mini",
         messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1200, 
       }),
     });
 

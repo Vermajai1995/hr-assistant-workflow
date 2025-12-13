@@ -112,9 +112,6 @@ VERY IMPORTANT:
 `;
 
   try {
-    console.log("OPENROUTER_KEY_PRESENT:", !!OPENROUTER_API_KEY);
-console.log("MODEL:", OPENROUTER_MODEL);
-console.log("BASE:", OPENROUTER_BASE_URL);
 
     const origin = req.headers.get("origin") || "http://localhost:3000";
     const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {

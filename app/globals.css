@@ -1,50 +1,88 @@
 @import "tailwindcss";
 
 /* -------------------------------------------
-   Theme tokens
+   Theme tokens (default = dark)
 -------------------------------------------- */
 :root {
+  /* base */
   --bg: #050b18;
   --fg: #e5e7eb;
   --muted: #94a3b8;
 
+  /* surfaces */
   --card: rgba(2, 6, 23, 0.70);
   --card2: rgba(15, 23, 42, 0.60);
-
   --border: rgba(51, 65, 85, 0.70);
   --input: rgba(2, 6, 23, 0.80);
-
   --shadow: rgba(16, 185, 129, 0.12);
 
   /* tabs */
-  --tabbar: rgba(2, 6, 23, 0.65);
+  --tabbar: rgba(2, 6, 23, 0.45);
   --tab-active-bg: rgba(255, 255, 255, 0.06);
   --tab-active-fg: #34d399; /* emerald */
-  --tab-inactive-fg: #94a3b8;
+  --tab-inactive-fg: rgba(148, 163, 184, 0.95);
+
+  /* buttons */
+  --btn-primary-bg: linear-gradient(90deg, #34d399, #22d3ee);
+  --btn-primary-fg: #052e2b;
+
+  --btn-secondary-bg: rgba(15, 23, 42, 0.75);
+  --btn-secondary-fg: #e5e7eb;
+
+  --btn-ghost-bg: rgba(2, 6, 23, 0.35);
+  --btn-ghost-fg: #e5e7eb;
+
+  /* focus ring */
+  --ring: rgba(52, 211, 153, 0.35);
+
+  /* table */
+  --table-head-bg: rgba(2, 6, 23, 0.55);
+  --row-odd: rgba(2, 6, 23, 0.35);
+  --row-even: rgba(2, 6, 23, 0.20);
+  --row-hover: rgba(15, 23, 42, 0.45);
+
+  /* danger */
+  --danger-bg: rgba(239, 68, 68, 0.10);
+  --danger-border: rgba(239, 68, 68, 0.35);
+  --danger-fg: rgba(254, 202, 202, 0.95);
 }
 
 /* Light */
 :root[data-theme="light"] {
   --bg: #f5f7fb;
   --fg: #0f172a;
-  --muted: #475569;
+  --muted: #334155;
 
   --card: #ffffff;
   --card2: #ffffff;
-
   --border: rgba(203, 213, 225, 1);
   --input: #f8fafc;
-
   --shadow: rgba(2, 132, 199, 0.12);
 
-  /* tabs */
-  --tabbar: #ffffff;
-  --tab-active-bg: #ffffff;
-  --tab-active-fg: #059669; /* emerald-600 */
-  --tab-inactive-fg: #475569;
+  --tabbar: rgba(241, 245, 249, 1);
+  --tab-active-bg: rgba(226, 232, 240, 0.80);
+  --tab-active-fg: #0ea5e9; /* sky */
+  --tab-inactive-fg: rgba(71, 85, 105, 0.95);
+
+  --btn-secondary-bg: rgba(241, 245, 249, 1);
+  --btn-secondary-fg: #0f172a;
+
+  --btn-ghost-bg: rgba(241, 245, 249, 0.75);
+  --btn-ghost-fg: #0f172a;
+
+  --ring: rgba(2, 132, 199, 0.25);
+
+  --table-head-bg: rgba(241, 245, 249, 1);
+  --row-odd: rgba(248, 250, 252, 1);
+  --row-even: rgba(241, 245, 249, 0.90);
+  --row-hover: rgba(226, 232, 240, 0.90);
+
+  --danger-bg: rgba(239, 68, 68, 0.08);
+  --danger-border: rgba(239, 68, 68, 0.25);
+  --danger-fg: rgba(127, 29, 29, 0.95);
 }
 
-/* Smart (hybrid) - dark base */
+/* Smart (hybrid) - dark base, glassy surfaces */
 :root[data-theme="smart-dark"] {
   --bg: #030712;
   --fg: #e5e7eb;
@@ -52,19 +90,25 @@
 
   --card: rgba(255, 255, 255, 0.06);
   --card2: rgba(255, 255, 255, 0.08);
-
   --border: rgba(255, 255, 255, 0.12);
   --input: rgba(255, 255, 255, 0.06);
-
   --shadow: rgba(34, 211, 238, 0.12);
 
   --tabbar: rgba(255, 255, 255, 0.06);
   --tab-active-bg: rgba(255, 255, 255, 0.10);
-  --tab-active-fg: #22d3ee;
-  --tab-inactive-fg: #a1a1aa;
+  --tab-active-fg: #22d3ee; /* cyan */
+  --tab-inactive-fg: rgba(212, 212, 216, 0.95);
+
+  --btn-secondary-bg: rgba(255, 255, 255, 0.08);
+  --btn-secondary-fg: #e5e7eb;
+
+  --btn-ghost-bg: rgba(255, 255, 255, 0.06);
+  --btn-ghost-fg: #e5e7eb;
+
+  --ring: rgba(34, 211, 238, 0.25);
 }
 
-/* Smart (hybrid) - light base */
+/* Smart (hybrid) - light base, slightly tinted surfaces */
 :root[data-theme="smart-light"] {
   --bg: #f6f7fb;
   --fg: #0f172a;
@@ -72,20 +116,26 @@
 
   --card: rgba(255, 255, 255, 0.85);
   --card2: rgba(255, 255, 255, 0.92);
-
   --border: rgba(148, 163, 184, 0.35);
-  --input: rgba(248, 250, 252, 0.9);
-
+  --input: rgba(248, 250, 252, 0.90);
   --shadow: rgba(16, 185, 129, 0.10);
 
-  --tabbar: rgba(255, 255, 255, 0.92);
-  --tab-active-bg: rgba(255, 255, 255, 1);
-  --tab-active-fg: #059669;
-  --tab-inactive-fg: #475569;
+  --tabbar: rgba(255, 255, 255, 0.85);
+  --tab-active-bg: rgba(226, 232, 240, 0.75);
+  --tab-active-fg: #10b981; /* emerald */
+  --tab-inactive-fg: rgba(71, 85, 105, 0.95);
+
+  --btn-secondary-bg: rgba(255, 255, 255, 0.80);
+  --btn-secondary-fg: #0f172a;
+
+  --btn-ghost-bg: rgba(255, 255, 255, 0.65);
+  --btn-ghost-fg: #0f172a;
+
+  --ring: rgba(16, 185, 129, 0.18);
 }
 
 /* -------------------------------------------
-   Base
+   Base reset + body
 -------------------------------------------- */
 *,
 *::before,
@@ -110,57 +160,12 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* helper */
-.text-muted { color: var(--muted); }
-
-/* -------------------------------------------
-   Component tokens (common)
--------------------------------------------- */
-:root {
-  --btn-primary-bg: linear-gradient(90deg, #34d399, #22d3ee);
-  --btn-primary-fg: #052e2b;
-
-  --btn-secondary-bg: rgba(15, 23, 42, 0.75);
-  --btn-secondary-fg: #e5e7eb;
-
-  --btn-ghost-bg: rgba(2, 6, 23, 0.35);
-  --btn-ghost-fg: #e5e7eb;
-
-  --ring: rgba(52, 211, 153, 0.35);
-
-  --table-head-bg: rgba(2, 6, 23, 0.55);
-  --row-odd: rgba(2, 6, 23, 0.35);
-  --row-even: rgba(2, 6, 23, 0.20);
-  --row-hover: rgba(15, 23, 42, 0.45);
-
-  --danger-bg: rgba(239, 68, 68, 0.10);
-  --danger-border: rgba(239, 68, 68, 0.35);
-  --danger-fg: rgba(254, 202, 202, 0.95);
-}
-
-/* Light overrides */
-:root[data-theme="light"],
-:root[data-theme="smart-light"] {
-  --btn-secondary-bg: rgba(241, 245, 249, 1);
-  --btn-secondary-fg: #0f172a;
-
-  --btn-ghost-bg: rgba(241, 245, 249, 0.75);
-  --btn-ghost-fg: #0f172a;
-
-  --ring: rgba(2, 132, 199, 0.25);
-
-  --table-head-bg: rgba(241, 245, 249, 1);
-  --row-odd: rgba(248, 250, 252, 1);
-  --row-even: rgba(241, 245, 249, 0.9);
-  --row-hover: rgba(226, 232, 240, 0.9);
-
-  --danger-bg: rgba(239, 68, 68, 0.08);
-  --danger-border: rgba(239, 68, 68, 0.25);
-  --danger-fg: rgba(127, 29, 29, 0.95);
+.text-muted {
+  color: var(--muted);
 }
 
 /* -------------------------------------------
-   Reusable utility classes
+   Reusable UI classes
 -------------------------------------------- */
 .ui-card {
   background: var(--card);

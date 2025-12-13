@@ -1,4 +1,3 @@
-// app/capture/page.tsx
 "use client";
 
 import React, {
@@ -103,10 +102,9 @@ const CORE_FIELDS: string[] = [
 ];
 
 type ThemeOption = "dark" | "light" | "system";
-
 type LoadingAction = null | "extract" | "transliterate";
 
-// Sample transcript – agar user isko change nahi karega to API call block karenge
+// Sample transcript – ab ye extract ho sakta hai ✅
 const SAMPLE_TRANSCRIPT =
   "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.";
 
@@ -119,8 +117,6 @@ export default function CapturePage() {
   const [status, setStatus] = useState<string>("Idle");
 
   const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
-  const [hasTouchedTranscript, setHasTouchedTranscript] = useState(false);
-
 
   const [rows, setRows] = useState<PiiRowExt[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -147,103 +143,95 @@ export default function CapturePage() {
   const [whatsAppText, setWhatsAppText] = useState<string>("");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
+
   // file upload states
-const [fileName, setFileName] = useState<string | null>(null);
-const [fileStatus, setFileStatus] = useState<string | null>(null);
-const stopExtractTimeoutRef = useRef<number | null>(null);
-const autoExtractedThisSessionRef = useRef(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const stopExtractTimeoutRef = useRef<number | null>(null);
+  const autoExtractedThisSessionRef = useRef(false);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-const handleFileChange = async (
-  e: React.ChangeEvent<HTMLInputElement>
-) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    setError(null);
+    setFileName(file.name);
+    setFileStatus("Reading file...");
+    setTranscript("");
 
-  setError(null);
-  setFileName(file.name);
-  setFileStatus("Reading file...");
-  setTranscript("");
+    try {
+      // ---------- PDF ----------
+      if (file.type === "application/pdf") {
+        const pdfjsLib = await import("pdfjs-dist");
+        const pdfAny: any = pdfjsLib;
 
-  try {
-    // ---------- PDF ----------
-    if (file.type === "application/pdf") {
-      const pdfjsLib = await import("pdfjs-dist");
-      const pdfAny: any = pdfjsLib;
+        const v = pdfAny.version;
+        const candidates = [
+          `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.mjs`,
+          `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.js`,
+        ];
+        pdfAny.GlobalWorkerOptions.workerSrc = candidates[0];
 
-      
-      const v = pdfAny.version;
+        const arrayBuffer = await file.arrayBuffer();
+        const typedArray = new Uint8Array(arrayBuffer);
 
-      const candidates = [
-        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.mjs`,
-        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.js`,
-      ];
+        const loadingTask = pdfAny.getDocument({ data: typedArray });
+        const pdf = await loadingTask.promise;
 
-      pdfAny.GlobalWorkerOptions.workerSrc = candidates[0];
+        let fullText = "";
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const content = await page.getTextContent();
+          const strings = (content.items as any[])
+            .map((item) => (item as any).str || "")
+            .join(" ");
+          fullText += strings + "\n";
+        }
 
-
-      const arrayBuffer = await file.arrayBuffer();
-      const typedArray = new Uint8Array(arrayBuffer);
-
-      const loadingTask = pdfAny.getDocument({ data: typedArray });
-      const pdf = await loadingTask.promise;
-
-      let fullText = "";
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        const strings = (content.items as any[])
-          .map((item) => (item as any).str || "")
-          .join(" ");
-        fullText += strings + "\n";
+        setTranscript(fullText.trim());
+        setFileStatus("PDF parsed successfully ✅");
+        return;
       }
 
-      setTranscript(fullText.trim());
-      setFileStatus("PDF parsed successfully ✅");
-      return;
-    }
+      // ---------- DOCX ----------
+      if (
+        file.type ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ) {
+        const mammoth = await import("mammoth/mammoth.browser");
+        const arrayBuffer = await file.arrayBuffer();
+        const { value } = await mammoth.extractRawText({ arrayBuffer });
 
-    // ---------- DOCX ----------
-    if (
-      file.type ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ) {
-      const mammoth = await import("mammoth/mammoth.browser");
-      const arrayBuffer = await file.arrayBuffer();
-      const { value } = await mammoth.extractRawText({ arrayBuffer });
+        setTranscript(value.trim());
+        setFileStatus("DOCX parsed successfully ✅");
+        return;
+      }
 
-      setTranscript(value.trim());
-      setFileStatus("DOCX parsed successfully ✅");
-      return;
-    }
+      // ---------- TXT ----------
+      if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+        const text = await file.text();
+        setTranscript(text.trim());
+        setFileStatus("Text file loaded ✅");
+        return;
+      }
 
-    // ---------- TXT ----------
-    if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+      // ---------- fallback ----------
       const text = await file.text();
       setTranscript(text.trim());
-      setFileStatus("Text file loaded ✅");
-      return;
+      setFileStatus(
+        "Unknown file type – attempted to read as text. Please review."
+      );
+    } catch (err) {
+      console.error("File parse error:", err);
+      setFileStatus("⚠️ Failed to parse file. Paste the text manually if needed.");
     }
-
-    // ---------- fallback ----------
-    const text = await file.text();
-    setTranscript(text.trim());
-    setFileStatus(
-      "Unknown file type – attempted to read as text. Please review."
-    );
-  } catch (err) {
-    console.error("File parse error:", err);
-    setFileStatus(
-      "⚠️ Failed to parse file. Paste the text manually if needed."
-    );
-  }
-};
-
+  };
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Load saved theme
   useEffect(() => {
     if (!mounted) return;
     try {
@@ -251,41 +239,36 @@ const handleFileChange = async (
       if (saved === "dark" || saved === "light" || saved === "system") {
         setTheme(saved);
       } else {
-        setTheme("dark");
+        setTheme("system");
       }
-      
     } catch {
       // ignore
     }
   }, [mounted]);
 
+  // Apply theme to <html data-theme="">
   useEffect(() => {
     if (!mounted) return;
-  
+
     const prefersDark =
       typeof window !== "undefined" &&
       window.matchMedia &&
       window.matchMedia("(prefers-color-scheme: dark)").matches;
-  
-    let finalTheme:
-      | "light"
-      | "dark"
-      | "smart-dark"
-      | "smart-light" = "dark";
-  
+
+    let finalTheme: "light" | "dark" | "smart-dark" | "smart-light" = "dark";
+
     if (theme === "system") {
       finalTheme = prefersDark ? "smart-dark" : "smart-light";
     } else {
-      finalTheme = theme; // "dark" | "light"
+      finalTheme = theme;
     }
-  
+
     document.documentElement.setAttribute("data-theme", finalTheme);
-  
+
     try {
       localStorage.setItem("theme", theme);
     } catch {}
   }, [theme, mounted]);
-  
 
   // Sorted rows helpers
   const sortRows = (raw: PiiRow[]): PiiRowExt[] => {
@@ -366,7 +349,6 @@ const handleFileChange = async (
         finalTranscript += event.results[i][0].transcript + " ";
       }
       setTranscript(finalTranscript.trim());
-      setHasTouchedTranscript(true);
     };
 
     recognitionRef.current = recognition;
@@ -412,22 +394,13 @@ const handleFileChange = async (
       setError("Could not start microphone. Please check browser permissions.");
     }
   };
-  
 
   const handleExtractPII = async (autoFromMic = false) => {
     if (isExtracting || loadingAction) return;
 
     const text = transcript.trim();
 
-   
-    // ✅ Guard only for auto extraction (mic stop), not for manual button click
-if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
-  setError("Please speak something or paste your own conversation before extracting.");
-  setStatus("Idle");
-  return;
-}
-
-
+    // ✅ Only block if EMPTY (sample is allowed now)
     if (!text) {
       setError("Please speak something first or paste a conversation.");
       return;
@@ -436,7 +409,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
     setIsExtracting(true);
     setLoadingAction("extract");
     setError(null);
-    setStatus("Extracting structured HR details…");
+    setStatus(autoFromMic ? "Auto-extracting HR details…" : "Extracting structured HR details…");
 
     // Clear old summaries & transliteration state
     setHrBrief("");
@@ -484,41 +457,40 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
     }
   };
 
+  const stopListening = () => {
+    if (!recognitionRef.current) return;
 
- const stopListening = () => {
-  if (!recognitionRef.current) return;
+    // ✅ if already auto-extracted once, just stop mic
+    if (autoExtractedThisSessionRef.current) {
+      try {
+        recognitionRef.current.stop();
+        setStatus("Stopping…");
+      } catch {}
+      return;
+    }
 
-  // ✅ if already extracting or already auto-extracted once, just stop mic
-  if (autoExtractedThisSessionRef.current) {
+    // clear any previous timer
+    if (stopExtractTimeoutRef.current) {
+      window.clearTimeout(stopExtractTimeoutRef.current);
+      stopExtractTimeoutRef.current = null;
+    }
+
     try {
       recognitionRef.current.stop();
       setStatus("Stopping…");
-    } catch {}
-    return;
-  }
 
-  // clear any previous timer
-  if (stopExtractTimeoutRef.current) {
-    window.clearTimeout(stopExtractTimeoutRef.current);
-    stopExtractTimeoutRef.current = null;
-  }
+      stopExtractTimeoutRef.current = window.setTimeout(() => {
+        // ✅ run auto-extract only once per listening session
+        if (autoExtractedThisSessionRef.current) return;
+        if (!transcript.trim()) return;
 
-  try {
-    recognitionRef.current.stop();
-    setStatus("Stopping…");
-
-    stopExtractTimeoutRef.current = window.setTimeout(() => {
-      // ✅ run auto-extract only once per listening session
-      if (autoExtractedThisSessionRef.current) return;
-      if (!transcript.trim()) return;
-
-      autoExtractedThisSessionRef.current = true;
-      handleExtractPII(true);
-    }, 500);
-  } catch (e) {
-    console.error(e);
-  }
-};
+        autoExtractedThisSessionRef.current = true;
+        handleExtractPII(true);
+      }, 500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleGenerateWhatsApp = () => {
     if (!rows.length) {
@@ -555,10 +527,9 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
 
     if (openings) parts.push(`Openings: ${openings}`);
     if (expLevel || expYears) {
-      const expParts = [
-        expLevel,
-        expYears ? `${expYears} yrs` : undefined,
-      ].filter(Boolean);
+      const expParts = [expLevel, expYears ? `${expYears} yrs` : undefined].filter(
+        Boolean
+      );
       parts.push(`Exp: ${expParts.join(" · ")}`);
     }
     if (workMode) parts.push(`Mode: ${workMode}`);
@@ -795,7 +766,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
   };
 
   const handleReset = () => {
-    setTranscript("");
+    setTranscript(SAMPLE_TRANSCRIPT);
     setRows([]);
     setError(null);
     setStatus("Idle");
@@ -810,6 +781,8 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
     setIsTransliterated(false);
     setLoadingAction(null);
     setWhatsAppText("");
+    setFileName(null);
+    setFileStatus(null);
   };
 
   const isBusy = isListening || isExtracting || loadingAction !== null;
@@ -817,7 +790,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
   // Hydration-safe
   if (!mounted) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-20 text-center text-xs text-slate-400">
+      <div className="mx-auto max-w-4xl px-4 py-20 text-center text-xs text-muted">
         Loading interface…
       </div>
     );
@@ -837,39 +810,43 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
     <>
       <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
         {/* Top heading + actions card */}
-        <div
-  className="rounded-2xl backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between shadow-lg"
-  style={{
-    background: "var(--card2)",
-    border: "1px solid var(--border)",
-    boxShadow: `0 10px 30px var(--shadow)`,
-  }}
->
+        <div className="ui-card2 rounded-2xl backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <h1 className="text-lg sm:text-xl font-semibold">
               Capture hiring conversations
             </h1>
-            <p className="text-[11px] sm:text-xs text-slate-300">
-              Speak with clients or agencies. We&apos;ll turn it into a
-              structured HR requirement table.
+
+            <p className="text-[11px] sm:text-xs text-muted">
+              Speak with clients or agencies. We&apos;ll turn it into a structured HR requirement table.
             </p>
 
-            <div className="flex items-center gap-2 text-[11px] text-slate-300 pt-1 flex-wrap">
-              <span className="text-slate-400">Language mode:</span>
+            <div className="flex items-center gap-2 text-[11px] pt-1 flex-wrap">
+              <span className="text-muted">Language mode:</span>
               <select
                 value={lang}
                 onChange={(e) =>
                   setLang(e.target.value as "hi-IN" | "en-IN" | "en-US")
                 }
                 disabled={isListening}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
+                className="ui-select rounded-md px-2 py-1 text-[11px]"
               >
                 <option value="hi-IN">Hinglish / Hindi (hi-IN)</option>
                 <option value="en-IN">English (India - en-IN)</option>
                 <option value="en-US">English (US - en-US)</option>
               </select>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-[2px] text-[10px] text-emerald-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px]"
+                style={{
+                  background: "rgba(16,185,129,0.10)",
+                  border: "1px solid rgba(16,185,129,0.25)",
+                  color: "var(--tab-active-fg)",
+                }}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: "var(--tab-active-fg)" }}
+                />
                 Live speech
               </span>
             </div>
@@ -878,11 +855,11 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
           <div className="flex flex-col gap-2 items-end">
             {/* Theme switcher */}
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-slate-400">Theme:</span>
+              <span className="text-muted">Theme:</span>
               <select
                 value={theme}
                 onChange={(e) => setTheme(e.target.value as ThemeOption)}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
+                className="ui-select rounded-md px-2 py-1 text-[11px]"
               >
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
@@ -894,26 +871,34 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
               <button
                 onClick={startListening}
                 disabled={!isSupported || isListening}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
+                className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
               >
                 {isListening ? (
                   <Spinner size={12} />
                 ) : (
-                  <span className="h-2 w-2 rounded-full bg-emerald-900 border border-emerald-300" />
+                  <span
+                    className="h-2 w-2 rounded-full border"
+                    style={{
+                      background: "rgba(5,46,43,0.85)",
+                      borderColor: "rgba(255,255,255,0.35)",
+                    }}
+                  />
                 )}
                 {isSupported ? "Start Listening" : "Not supported"}
               </button>
+
               <button
                 onClick={stopListening}
                 disabled={!isListening}
-                className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                className="ui-btn-secondary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50"
               >
                 ⏹ Stop
               </button>
+
               <button
                 onClick={handleReset}
                 disabled={isBusy || (!transcript && !rows.length)}
-                className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 border border-slate-700 disabled:opacity-50"
+                className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50"
               >
                 ↺ Clear
               </button>
@@ -922,71 +907,82 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
         </div>
 
         {/* Status line */}
-        <div className="flex items-center gap-2 text-xs text-slate-200 flex-wrap">
+        <div className="flex items-center gap-2 text-xs flex-wrap">
           <span
-            className={`inline-flex h-2 w-2 rounded-full ${
-              isListening
-                ? "bg-emerald-400 shadow-[0_0_0_4px] shadow-emerald-500/20"
+            className="inline-flex h-2 w-2 rounded-full"
+            style={{
+              background: isListening
+                ? "var(--tab-active-fg)"
                 : isExtracting || loadingAction
-                ? "bg-amber-400 shadow-[0_0_0_4px] shadow-amber-500/20"
-                : "bg-slate-500"
-            }`}
+                ? "rgba(245,158,11,0.9)"
+                : "rgba(100,116,139,0.9)",
+              boxShadow: isListening
+                ? "0 0 0 4px rgba(16,185,129,0.15)"
+                : isExtracting || loadingAction
+                ? "0 0 0 4px rgba(245,158,11,0.15)"
+                : "none",
+            }}
           />
           <span>{status}</span>
+
           {isExtracting && (
-            <span className="text-[10px] text-slate-400">
+            <span className="text-[10px] text-muted">
               (Parsing roles, openings, budget, experience…)
             </span>
           )}
+
           {briefCopied && (
-            <span className="text-[10px] text-emerald-300">
+            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
               HR brief copied ✔
             </span>
           )}
           {emailCopied && (
-            <span className="text-[10px] text-emerald-300">
+            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
               Email draft copied ✔
             </span>
           )}
           {jsonCopied && (
-            <span className="text-[10px] text-emerald-300">JSON copied ✔</span>
+            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
+              JSON copied ✔
+            </span>
           )}
         </div>
 
-        {error && (
-          <div className="text-xs text-red-300 border border-red-700/70 bg-red-950/50 rounded-xl px-3 py-2">
-            {error}
-          </div>
-        )}
+        {error && <div className="ui-danger rounded-xl px-3 py-2 text-xs">{error}</div>}
 
         {/* Main card */}
-        <div
-  className="rounded-3xl backdrop-blur-xl shadow-xl overflow-hidden"
-  style={{
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-  }}
->
+        <div className="ui-card rounded-3xl backdrop-blur-xl shadow-xl overflow-hidden">
           {/* Tabs */}
-          <div className="flex border-b border-slate-800 bg-slate-950/80">
+          <div className="ui-tabbar flex">
             <button
               onClick={() => handleTabChange("transcript")}
-              className={`flex-1 px-4 py-2.5 text-xs font-medium transition-colors ${
+              className="flex-1 px-4 py-2.5 text-xs font-medium transition-colors"
+              style={
                 activeTab === "transcript"
-                  ? "bg-slate-900 text-emerald-300 border-b-2 border-emerald-400"
-                  : "text-slate-400 hover:text-slate-100"
-              }`}
+                  ? {
+                      background: "var(--tab-active-bg)",
+                      color: "var(--tab-active-fg)",
+                      borderBottom: "2px solid var(--tab-active-fg)",
+                    }
+                  : { color: "var(--tab-inactive-fg)" }
+              }
             >
               Transcript
             </button>
+
             <button
               onClick={() => handleTabChange("pii")}
-              className={`flex-1 px-4 py-2.5 text-xs font-medium transition-colors ${
-                activeTab === "pii"
-                  ? "bg-slate-900 text-emerald-300 border-b-2 border-emerald-400"
-                  : "text-slate-400 hover:text-slate-100"
-              }`}
               disabled={isListening}
+              className="flex-1 px-4 py-2.5 text-xs font-medium transition-colors disabled:opacity-50"
+              style={
+                activeTab === "pii"
+                  ? {
+                      background: "var(--tab-active-bg)",
+                      color: "var(--tab-active-fg)",
+                      borderBottom: "2px solid var(--tab-active-fg)",
+                    }
+                  : { color: "var(--tab-inactive-fg)" }
+              }
             >
               HR fields table
             </button>
@@ -996,92 +992,83 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
           <div className="p-4 sm:p-6">
             {activeTab === "transcript" && (
               <div className="space-y-4">
-                <div className="flex justify-between items-center text-xs text-slate-400">
+                <div className="flex justify-between items-center text-xs text-muted">
                   <span>Conversation text (auto-filled or paste your own)</span>
-                  <span className="text-[10px] text-slate-500">
-                    {transcript.length
-                      ? `${transcript.length} characters`
-                      : "empty"}
+                  <span className="text-[10px] text-muted">
+                    {transcript.length ? `${transcript.length} characters` : "empty"}
                   </span>
                 </div>
+
                 <div className="space-y-2">
-  <label className="text-xs text-slate-400">
-    Upload transcript / JD (PDF, DOCX, TXT)
-  </label>
+                  <label className="text-xs text-muted">
+                    Upload transcript / JD (PDF, DOCX, TXT)
+                  </label>
 
-  <div className="flex items-center gap-3 flex-wrap">
-  {/* hidden native input */}
-  <input
-    id="upload-transcript"
-    type="file"
-    accept=".pdf,.docx,.txt"
-    onChange={handleFileChange}
-    className="hidden"
-  />
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <input
+                      id="upload-transcript"
+                      type="file"
+                      accept=".pdf,.docx,.txt"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
 
-  {/* custom button */}
-  <label
-    htmlFor="upload-transcript"
-    className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold
-               text-slate-950 cursor-pointer select-none
-               bg-gradient-to-r from-emerald-400 to-cyan-400
-               shadow-lg shadow-emerald-500/25
-               hover:shadow-emerald-500/40 hover:brightness-105
-               focus:outline-none focus:ring-2 focus:ring-emerald-300/70
-               active:scale-[0.98] transition"
-  >
-    📄 Upload file
-    <span className="text-[10px] font-bold opacity-80">PDF/DOCX/TXT</span>
-  </label>
+                    <label
+                      htmlFor="upload-transcript"
+                      className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold cursor-pointer select-none"
+                    >
+                      📄 Upload file
+                      <span className="text-[10px] font-bold opacity-80">
+                        PDF/DOCX/TXT
+                      </span>
+                    </label>
 
-  {/* filename chip */}
-  <span
-    className="inline-flex items-center gap-2 rounded-full border border-slate-700
-               bg-slate-950/60 px-3 py-2 text-[11px] text-slate-200"
-    title={fileName || "No file chosen"}
-  >
-    <span className="h-2 w-2 rounded-full bg-slate-500" />
-    {fileName ? (
-      <span className="max-w-[220px] sm:max-w-[320px] truncate">{fileName}</span>
-    ) : (
-      <span className="text-slate-400">No file chosen</span>
-    )}
-  </span>
-</div>
+                    <span
+                      className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px]"
+                      title={fileName || "No file chosen"}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: "rgba(100,116,139,0.9)" }}
+                      />
+                      {fileName ? (
+                        <span className="max-w-[220px] sm:max-w-[320px] truncate">
+                          {fileName}
+                        </span>
+                      ) : (
+                        <span className="text-muted">No file chosen</span>
+                      )}
+                    </span>
+                  </div>
 
+                  {fileName && (
+                    <p className="text-[11px] text-muted">
+                      Selected: <span className="font-medium">{fileName}</span>
+                    </p>
+                  )}
 
-  {fileName && (
-    <p className="text-[11px] text-slate-400">
-      Selected: <span className="font-medium">{fileName}</span>
-    </p>
-  )}
+                  {fileStatus && (
+                    <p
+                      className="text-[11px] rounded-xl px-3 py-2 inline-block"
+                      style={{
+                        color: "var(--tab-active-fg)",
+                        background: "rgba(16,185,129,0.10)",
+                        border: "1px solid rgba(16,185,129,0.22)",
+                      }}
+                    >
+                      {fileStatus}
+                    </p>
+                  )}
 
-{fileStatus && (
-  <p className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 inline-block">
-    {fileStatus}
-  </p>
-)}
-
-
-  <p className="text-[10px] text-slate-500">
-    Tip: If parsing looks odd, you can edit the text below before extraction.
-  </p>
-</div>
-
+                  <p className="text-[10px] text-muted">
+                    Tip: If parsing looks odd, you can edit the text below before extraction.
+                  </p>
+                </div>
 
                 <textarea
-                  className="w-full min-h-[190px] rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/90 resize-y"
-                  style={{
-                    background: "var(--input)",
-                    borderColor: "var(--border)",
-                    color: "var(--fg)",
-                  }}
-                  placeholder=""
+                  className="ui-input w-full min-h-[190px] rounded-2xl px-3 py-2 text-sm resize-y"
                   value={transcript}
-                  onChange={(e) => {
-                    setTranscript(e.target.value);
-                    setHasTouchedTranscript(true);
-                  }}                  
+                  onChange={(e) => setTranscript(e.target.value)}
                   readOnly={isListening}
                 />
 
@@ -1089,18 +1076,14 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                   <button
                     onClick={() => handleExtractPII(false)}
                     disabled={!transcript.trim() || isBusy}
-                    className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-1.5 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 disabled:opacity-50"
+                    className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
                   >
-                    {loadingAction === "extract" ? (
-                      <Spinner size={14} />
-                    ) : (
-                      <>🔄</>
-                    )}
+                    {loadingAction === "extract" ? <Spinner size={14} /> : <>🔄</>}
                     <span>Sync &amp; extract HR fields</span>
                   </button>
-                  <p className="text-[10px] text-slate-500 max-w-xs text-right">
-                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or
-                    notes from a phone call.
+
+                  <p className="text-[10px] text-muted max-w-xs text-right">
+                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or notes from a phone call.
                   </p>
                 </div>
               </div>
@@ -1109,21 +1092,21 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
             {activeTab === "pii" && (
               <div className="space-y-4">
                 {/* Completeness bar */}
-                <div className="flex flex-col gap-1 text-xs text-slate-200 mb-1">
+                <div className="flex flex-col gap-1 text-xs mb-1">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">Field completeness:</span>
-                      <span className="text-emerald-300">
-                        {completeness.present} / {completeness.total} core
-                        fields
+                      <span style={{ color: "var(--tab-active-fg)" }}>
+                        {completeness.present} / {completeness.total} core fields
                       </span>
                     </div>
+
                     <div className="flex items-center gap-2 flex-wrap">
                       {!isTransliterated ? (
                         <button
                           onClick={handleTransliterate}
                           disabled={!rows.length || isBusy}
-                          className="rounded-full bg-purple-500/80 px-3 py-1.5 text-[11px] font-semibold text-white border border-purple-400/80 disabled:opacity-50"
+                          className="ui-btn-secondary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                         >
                           {loadingAction === "transliterate" ? (
                             <Spinner size={12} />
@@ -1135,7 +1118,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                       ) : (
                         <button
                           onClick={handleUndoTransliterate}
-                          className="rounded-full bg-yellow-500/80 px-3 py-1.5 text-[11px] font-semibold text-black border border-yellow-400/80"
+                          className="ui-btn-secondary rounded-full px-3 py-1.5 text-[11px] font-semibold"
                         >
                           ↩ Undo Transliteration
                         </button>
@@ -1144,38 +1127,47 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                       <button
                         onClick={handleCopyAsMarkdown}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                       >
                         Copy table (MD)
                       </button>
+
                       <button
                         onClick={handleExportCSV}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                       >
                         Export CSV
                       </button>
+
                       <button
                         onClick={handleCopyJson}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-emerald-500/60 disabled:opacity-50"
+                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
+                        style={{ borderColor: "rgba(16,185,129,0.45)" }}
                       >
                         {jsonCopied ? "JSON copied" : "Copy JSON"}
                       </button>
                     </div>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+
+                  <div
+                    className="w-full h-1.5 rounded-full overflow-hidden"
+                    style={{ background: "rgba(148,163,184,0.15)" }}
+                  >
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                      className="h-full rounded-full"
                       style={{
                         width: `${completeness.percent}%`,
+                        background: "var(--btn-primary-bg)",
                       }}
                     />
                   </div>
+
                   {completeness.missing.length > 0 && (
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-[10px] text-muted">
                       Missing core fields:{" "}
-                      <span className="text-amber-300">
+                      <span style={{ color: "rgba(245,158,11,0.95)" }}>
                         {completeness.missing.join(", ")}
                       </span>
                     </div>
@@ -1183,93 +1175,92 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                 </div>
 
                 {/* Table */}
-                <div className="overflow-x-auto border border-slate-800/80 rounded-2xl bg-slate-950/70">
+                <div className="ui-table-wrap overflow-x-auto rounded-2xl">
                   <table className="min-w-full text-[11px]">
-                    <thead className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border-b border-slate-800">
+                    <thead className="ui-thead">
                       <tr>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          #
-                        </th>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          Field
-                        </th>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          Value (editable)
-                        </th>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          Category
-                        </th>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          Conf.
-                        </th>
-                        <th className="px-2 py-2 text-left text-slate-400 font-medium">
-                          Snippet
-                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">#</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">Field</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">Value (editable)</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">Category</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">Conf.</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">Snippet</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {rows.length === 0 ? (
                         <tr>
-                          <td
-                            colSpan={6}
-                            className="px-3 py-5 text-center text-slate-500"
-                          >
-                            No HR fields detected yet. Extract using the
-                            transcript tab.
+                          <td colSpan={6} className="px-3 py-5 text-center text-muted">
+                            No HR fields detected yet. Extract using the transcript tab.
                           </td>
                         </tr>
                       ) : (
                         rows.map((row, idx) => {
                           const sensitive = isSensitiveRow(row);
                           const isLowConf =
-                            row.confidence !== undefined &&
-                            row.confidence < 0.6;
+                            row.confidence !== undefined && row.confidence < 0.6;
 
                           return (
                             <tr
                               key={row.id}
-                              className={`border-t border-slate-800/70 odd:bg-slate-950/70 even:bg-slate-950/40 hover:bg-slate-900/60 transition-colors ${
-                                sensitive ? "bg-red-950/40" : ""
-                              }`}
+                              className={`border-t ui-row-hover ${
+                                idx % 2 === 0 ? "ui-row-odd" : "ui-row-even"
+                              } ${sensitive ? "ui-danger" : ""}`}
+                              style={{ borderColor: "var(--border)" }}
                             >
-                              <td className="px-2 py-2 align-top text-slate-500">
+                              <td className="px-2 py-2 align-top text-muted">
                                 {idx + 1}
                               </td>
-                              <td className="px-2 py-2 align-top font-medium text-slate-100">
+
+                              <td className="px-2 py-2 align-top font-medium">
                                 <div className="flex items-center gap-1">
                                   {row.field}
                                   {sensitive && (
-                                    <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-400/60 px-1.5 py-[1px] text-[9px] text-red-200">
+                                    <span className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
+                                      style={{
+                                        background: "rgba(239,68,68,0.10)",
+                                        border: "1px solid rgba(239,68,68,0.35)",
+                                      }}
+                                    >
                                       ⚠ Sensitive
                                     </span>
                                   )}
                                 </div>
                               </td>
-                              <td className="px-2 py-2 align-top text-slate-100">
+
+                              <td className="px-2 py-2 align-top">
                                 <input
-                                  className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-1 py-[3px] text-[11px] text-slate-100 outline-none focus:ring-1 focus:ring-emerald-400/70 focus:border-emerald-400/80"
+                                  className="ui-input w-full rounded-md px-2 py-[3px] text-[11px]"
                                   value={row.value}
                                   onChange={(e) => handleValueChange(row.id, e)}
                                 />
                               </td>
+
                               <td className="px-2 py-2 align-top">
-                                <span
-                                  className={categoryBadgeClass(row.category)}
-                                >
+                                <span className={categoryBadgeClass(row.category)}>
                                   {row.category || "—"}
                                 </span>
+
                                 {isLowConf && (
-                                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-400/60 px-1.5 py-[1px] text-[9px] text-amber-200">
+                                  <span
+                                    className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
+                                    style={{
+                                      background: "rgba(245,158,11,0.10)",
+                                      border: "1px solid rgba(245,158,11,0.35)",
+                                      color: "rgba(245,158,11,0.95)",
+                                    }}
+                                  >
                                     ⬇ Low conf
                                   </span>
                                 )}
                               </td>
-                              <td className="px-2 py-2 align-top text-slate-300">
-                                {row.confidence !== undefined
-                                  ? row.confidence.toFixed(2)
-                                  : ""}
+
+                              <td className="px-2 py-2 align-top text-muted">
+                                {row.confidence !== undefined ? row.confidence.toFixed(2) : ""}
                               </td>
-                              <td className="px-2 py-2 align-top text-slate-400 max-w-[260px]">
+
+                              <td className="px-2 py-2 align-top text-muted max-w-[260px]">
                                 <span className="line-clamp-3">
                                   {row.snippet || "—"}
                                 </span>
@@ -1282,113 +1273,96 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                   </table>
                 </div>
 
-                {/* HR brief + email + JD */}
+                {/* Summaries */}
                 <div className="mt-4 space-y-4">
-                  {/* Brief + email buttons */}
                   <div className="flex flex-wrap gap-2 justify-between items-center">
                     <div className="space-y-1">
-                      <h3 className="text-xs font-semibold text-slate-100">
-                        Summaries & templates
-                      </h3>
-                      <p className="text-[10px] text-slate-400">
-                        Update table values if needed, then generate clean text
-                        blocks.
+                      <h3 className="text-xs font-semibold">Summaries & templates</h3>
+                      <p className="text-[10px] text-muted">
+                        Update table values if needed, then generate clean text blocks.
                       </p>
                     </div>
+
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={handleGenerateBrief}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-emerald-400/80 disabled:opacity-50"
+                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                       >
                         {isBusy ? <Spinner size={12} /> : "📝 HR brief"}
                       </button>
+
                       <button
                         onClick={handleGenerateEmail}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-sky-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-sky-400/80 disabled:opacity-50"
+                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                       >
                         {isBusy ? <Spinner size={12} /> : "✉ Email draft"}
                       </button>
+
                       <button
                         onClick={handleGenerateJD}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-indigo-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-50 border border-indigo-400/80 disabled:opacity-50"
+                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                       >
                         {isBusy ? <Spinner size={12} /> : "📄 Short JD"}
                       </button>
+
                       <button
                         onClick={handleGenerateWhatsApp}
                         disabled={!rows.length || isBusy}
-                        className="rounded-full bg-green-500/90 px-3 py-1.5 text-[11px] font-semibold text-slate-950 border border-green-400/80 disabled:opacity-50"
+                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                       >
-                        📱 WhatsApp summary
+                         {isBusy ? <Spinner size={12} /> : "📱 WhatsApp summary"}
                       </button>
                     </div>
                   </div>
 
-                  {/* HR brief */}
                   {hrBrief && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-100">
-                            HR brief (internal notes)
-                          </h4>
-                        </div>
+                        <h4 className="text-xs font-semibold">HR brief (internal notes)</h4>
                         <button
                           onClick={handleCopyBrief}
                           disabled={!hrBrief.trim()}
-                          className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                         >
                           Copy brief
                         </button>
                       </div>
                       <textarea
-                        className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={hrBrief}
                         readOnly
                       />
                     </div>
                   )}
 
-                  {/* Email draft */}
                   {emailDraft && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-100">
-                            Email draft for client confirmation
-                          </h4>
-                        </div>
+                        <h4 className="text-xs font-semibold">Email draft for client confirmation</h4>
                         <button
                           onClick={handleCopyEmail}
                           disabled={!emailDraft.trim()}
-                          className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700 disabled:opacity-50"
+                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                         >
                           Copy email
                         </button>
                       </div>
                       <textarea
-                        className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={emailDraft}
                         readOnly
                       />
                     </div>
                   )}
 
-                  {/* JD text */}
                   {jdText && (
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-100">
-                            Short job description
-                          </h4>
-                        </div>
-                      </div>
+                      <h4 className="text-xs font-semibold">Short job description</h4>
                       <textarea
-                        className="w-full min-h-[120px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={jdText}
                         readOnly
                       />
@@ -1398,11 +1372,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                   {whatsAppText && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-100">
-                            WhatsApp summary (copy & send)
-                          </h4>
-                        </div>
+                        <h4 className="text-xs font-semibold">WhatsApp summary (copy & send)</h4>
                         <button
                           onClick={async () => {
                             try {
@@ -1412,13 +1382,14 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
                               setError("Failed to copy WhatsApp text.");
                             }
                           }}
-                          className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 border border-slate-700"
+                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium"
                         >
                           Copy text
                         </button>
                       </div>
+
                       <textarea
-                        className="w-full min-h-[80px] rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-100 resize-y"
+                        className="ui-input w-full min-h-[80px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={whatsAppText}
                         readOnly
                       />
@@ -1430,10 +1401,9 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
           </div>
         </div>
 
-        <p className="text-[10px] text-slate-500">
-          Privacy note: This is a prototype. For production, add consent
-          screens, secure storage, and possibly self-hosted models instead of a
-          3rd party.
+        <p className="text-[10px] text-muted">
+          Privacy note: This is a prototype. For production, add consent screens, secure storage,
+          and possibly self-hosted models instead of a 3rd party.
         </p>
       </div>
 
@@ -1441,9 +1411,7 @@ if (autoFromMic && text === SAMPLE_TRANSCRIPT.trim() && !hasTouchedTranscript) {
       {(loadingAction || isExtracting) && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
           <Spinner size={40} />
-          {overlayMessage && (
-            <p className="mt-3 text-xs text-slate-100">{overlayMessage}</p>
-          )}
+          {overlayMessage && <p className="mt-3 text-xs text-slate-100">{overlayMessage}</p>}
         </div>
       )}
     </>
@@ -1468,17 +1436,17 @@ function categoryBadgeClass(category: string): string {
     "inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] capitalize";
   switch (category?.toLowerCase()) {
     case "client":
-      return `${base} bg-emerald-500/10 border-emerald-400/60 text-emerald-200`;
+      return `${base} bg-emerald-500/10 border-emerald-400/40 text-emerald-200`;
     case "role":
-      return `${base} bg-cyan-500/10 border-cyan-400/60 text-cyan-200`;
+      return `${base} bg-cyan-500/10 border-cyan-400/40 text-cyan-200`;
     case "openings":
-      return `${base} bg-indigo-500/10 border-indigo-400/60 text-indigo-200`;
+      return `${base} bg-indigo-500/10 border-indigo-400/40 text-indigo-200`;
     case "budget":
-      return `${base} bg-amber-500/10 border-amber-400/60 text-amber-200`;
+      return `${base} bg-amber-500/10 border-amber-400/40 text-amber-200`;
     case "location":
-      return `${base} bg-fuchsia-500/10 border-fuchsia-400/60 text-fuchsia-200`;
+      return `${base} bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-200`;
     default:
-      return `${base} bg-slate-700/40 border-slate-500/80 text-slate-100`;
+      return `${base} bg-slate-500/10 border-slate-500/30 text-slate-200`;
   }
 }
 
@@ -1487,19 +1455,12 @@ function isSensitiveRow(row: PiiRow): boolean {
   const value = row.value || "";
   const field = row.field.toLowerCase();
 
-  // Aadhaar-like 12 digits
   const aadhaarLike = /\b\d{4}\s?\d{4}\s?\d{4}\b/.test(value);
-  // PAN-like pattern
   const panLike = /\b[A-Z]{5}\d{4}[A-Z]\b/i.test(value);
-  // Long pure digit sequences (potential account/card)
   const longDigits = /\b\d{10,}\b/.test(value);
 
   if (aadhaarLike || panLike || longDigits) return true;
-  if (
-    field.includes("aadhaar") ||
-    field.includes("pan") ||
-    field.includes("id")
-  )
+  if (field.includes("aadhaar") || field.includes("pan") || field.includes("id"))
     return true;
 
   return false;
@@ -1543,34 +1504,19 @@ function buildHrBrief(rows: PiiRowExt[]): string {
     const parts = [clientName, clientCompany].filter(Boolean).join(" | ");
     lines.push(`Client: ${parts}`);
   }
-  if (clientCity) {
-    lines.push(`Location: ${clientCity}`);
-  }
-  if (openings) {
-    lines.push(`Total Openings: ${openings}`);
-  }
+  if (clientCity) lines.push(`Location: ${clientCity}`);
+  if (openings) lines.push(`Total Openings: ${openings}`);
+
   if (expYears || expLevel) {
-    const expParts = [
-      expLevel,
-      expYears ? `${expYears} years` : undefined,
-    ].filter(Boolean);
+    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(Boolean);
     if (expParts.length) lines.push(`Experience: ${expParts.join(" · ")}`);
   }
-  if (budgetRange) {
-    lines.push(`Budget: ${budgetRange} (per month, approx.)`);
-  }
-  if (workMode) {
-    lines.push(`Work Mode: ${workMode}`);
-  }
-  if (contractType) {
-    lines.push(`Type: ${contractType}`);
-  }
-  if (shift) {
-    lines.push(`Shift: ${shift}`);
-  }
-  if (notice) {
-    lines.push(`Notice / Joining: ${notice}`);
-  }
+
+  if (budgetRange) lines.push(`Budget: ${budgetRange} (per month, approx.)`);
+  if (workMode) lines.push(`Work Mode: ${workMode}`);
+  if (contractType) lines.push(`Type: ${contractType}`);
+  if (shift) lines.push(`Shift: ${shift}`);
+  if (notice) lines.push(`Notice / Joining: ${notice}`);
 
   if (skills) {
     lines.push("");
@@ -1579,9 +1525,7 @@ function buildHrBrief(rows: PiiRowExt[]): string {
 
   lines.push("");
   lines.push("All captured fields:");
-  rows.forEach((row) => {
-    lines.push(`- ${row.field}: ${row.value}`);
-  });
+  rows.forEach((row) => lines.push(`- ${row.field}: ${row.value}`));
 
   return lines.join("\n");
 }
@@ -1611,13 +1555,12 @@ function buildEmailDraft(rows: PiiRowExt[]): string {
   if (openings) summaryLines.push(`• Openings: ${openings}`);
   if (clientCity) summaryLines.push(`• Location: ${clientCity}`);
   if (workMode) summaryLines.push(`• Work mode: ${workMode}`);
+
   if (expLevel || expYears) {
-    const expParts = [
-      expLevel,
-      expYears ? `${expYears} years` : undefined,
-    ].filter(Boolean);
+    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(Boolean);
     summaryLines.push(`• Experience: ${expParts.join(" · ")}`);
   }
+
   if (budgetRange) summaryLines.push(`• Budget: ${budgetRange}`);
 
   const emailBody = [
@@ -1642,8 +1585,7 @@ function buildEmailDraft(rows: PiiRowExt[]): string {
 function buildJdText(rows: PiiRowExt[]): string {
   if (!rows.length) return "";
 
-  const position =
-    getFieldFromRows(rows, "Position Title") || "Software Engineer";
+  const position = getFieldFromRows(rows, "Position Title") || "Software Engineer";
   const clientCity =
     getFieldFromRows(rows, "Client Location / City") ||
     getFieldFromRows(rows, "Work Location") ||
@@ -1665,17 +1607,9 @@ function buildJdText(rows: PiiRowExt[]): string {
     }.`
   );
 
-  if (expYears) {
-    lines.push(`Experience required: around ${expYears} years.`);
-  }
-
-  if (workMode) {
-    lines.push(`Work mode: ${workMode}.`);
-  }
-
-  if (budgetRange) {
-    lines.push(`Budget range (per month): ${budgetRange}.`);
-  }
+  if (expYears) lines.push(`Experience required: around ${expYears} years.`);
+  if (workMode) lines.push(`Work mode: ${workMode}.`);
+  if (budgetRange) lines.push(`Budget range (per month): ${budgetRange}.`);
 
   if (skills) {
     lines.push("");
@@ -1686,12 +1620,8 @@ function buildJdText(rows: PiiRowExt[]): string {
   lines.push("");
   lines.push("Responsibilities (high-level):");
   lines.push("- Work closely with the team to deliver assigned tasks.");
-  lines.push(
-    "- Ensure quality, reliability and timely completion of project work."
-  );
-  lines.push(
-    "- Collaborate with stakeholders and communicate progress regularly."
-  );
+  lines.push("- Ensure quality, reliability and timely completion of project work.");
+  lines.push("- Collaborate with stakeholders and communicate progress regularly.");
 
   lines.push("");
   lines.push("Nice to have:");
