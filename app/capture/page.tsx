@@ -104,6 +104,8 @@ const CORE_FIELDS: string[] = [
 type ThemeOption = "dark" | "light" | "system";
 type LoadingAction = null | "extract" | "transliterate";
 
+type ToastType = "success" | "error" | "info";
+
 // Sample transcript – ab ye extract ho sakta hai ✅
 const SAMPLE_TRANSCRIPT =
   "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.";
@@ -123,12 +125,10 @@ export default function CapturePage() {
   const [activeTab, setActiveTab] = useState<TabId>("transcript");
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
+
   const [hrBrief, setHrBrief] = useState<string>("");
-  const [briefCopied, setBriefCopied] = useState(false);
   const [emailDraft, setEmailDraft] = useState<string>("");
   const [jdText, setJdText] = useState<string>("");
-  const [jsonCopied, setJsonCopied] = useState(false);
-  const [emailCopied, setEmailCopied] = useState(false);
 
   // Transliteration state
   const [originalRows, setOriginalRows] = useState<PiiRowExt[] | null>(null);
@@ -146,9 +146,26 @@ export default function CapturePage() {
 
   // file upload states
   const [fileName, setFileName] = useState<string | null>(null);
-  const [fileStatus, setFileStatus] = useState<string | null>(null);
   const stopExtractTimeoutRef = useRef<number | null>(null);
   const autoExtractedThisSessionRef = useRef(false);
+
+  // Toast (snackbar)
+  const [toast, setToast] = useState<{ msg: string; type: ToastType } | null>(
+    null
+  );
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = (msg: string, type: ToastType = "success") => {
+    setToast({ msg, type });
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -156,8 +173,9 @@ export default function CapturePage() {
 
     setError(null);
     setFileName(file.name);
-    setFileStatus("Reading file...");
     setTranscript("");
+
+    showToast("Reading file…", "info");
 
     try {
       // ---------- PDF ----------
@@ -189,7 +207,7 @@ export default function CapturePage() {
         }
 
         setTranscript(fullText.trim());
-        setFileStatus("PDF parsed successfully ✅");
+        showToast("PDF parsed ✅", "success");
         return;
       }
 
@@ -203,7 +221,7 @@ export default function CapturePage() {
         const { value } = await mammoth.extractRawText({ arrayBuffer });
 
         setTranscript(value.trim());
-        setFileStatus("DOCX parsed successfully ✅");
+        showToast("DOCX parsed ✅", "success");
         return;
       }
 
@@ -211,19 +229,17 @@ export default function CapturePage() {
       if (file.type === "text/plain" || file.name.endsWith(".txt")) {
         const text = await file.text();
         setTranscript(text.trim());
-        setFileStatus("Text file loaded ✅");
+        showToast("Text loaded ✅", "success");
         return;
       }
 
       // ---------- fallback ----------
       const text = await file.text();
       setTranscript(text.trim());
-      setFileStatus(
-        "Unknown file type – attempted to read as text. Please review."
-      );
+      showToast("Read as text (unknown type) ⚠️", "info");
     } catch (err) {
       console.error("File parse error:", err);
-      setFileStatus("⚠️ Failed to parse file. Paste the text manually if needed.");
+      showToast("Failed to parse file ⚠️", "error");
     }
   };
 
@@ -392,6 +408,7 @@ export default function CapturePage() {
     } catch (e) {
       console.error(e);
       setError("Could not start microphone. Please check browser permissions.");
+      showToast("Mic permission issue", "error");
     }
   };
 
@@ -403,21 +420,21 @@ export default function CapturePage() {
     // ✅ Only block if EMPTY (sample is allowed now)
     if (!text) {
       setError("Please speak something first or paste a conversation.");
+      showToast("Add some transcript first", "info");
       return;
     }
 
     setIsExtracting(true);
     setLoadingAction("extract");
     setError(null);
-    setStatus(autoFromMic ? "Auto-extracting HR details…" : "Extracting structured HR details…");
+    setStatus(
+      autoFromMic ? "Auto-extracting HR details…" : "Extracting structured HR details…"
+    );
 
     // Clear old summaries & transliteration state
     setHrBrief("");
     setEmailDraft("");
     setJdText("");
-    setBriefCopied(false);
-    setEmailCopied(false);
-    setJsonCopied(false);
     setOriginalRows(null);
     setIsTransliterated(false);
 
@@ -447,10 +464,13 @@ export default function CapturePage() {
       setHrBrief(buildHrBrief(sorted));
       setEmailDraft(buildEmailDraft(sorted));
       setJdText(buildJdText(sorted));
+
+      showToast(`Extracted ${sorted.length} fields ✅`, "success");
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Unexpected error while extracting PII.");
       setStatus("Idle");
+      showToast("Extraction failed ⚠️", "error");
     } finally {
       setIsExtracting(false);
       setLoadingAction(null);
@@ -495,6 +515,7 @@ export default function CapturePage() {
   const handleGenerateWhatsApp = () => {
     if (!rows.length) {
       setError("Extract fields first to generate WhatsApp summary.");
+      showToast("Extract fields first", "info");
       return;
     }
     setError(null);
@@ -542,6 +563,7 @@ export default function CapturePage() {
 
     setWhatsAppText(msg);
     setStatus("WhatsApp summary generated.");
+    showToast("WhatsApp summary ready ✅", "success");
   };
 
   // Inline edit handler
@@ -589,8 +611,11 @@ export default function CapturePage() {
       setHrBrief(buildHrBrief(updatedRows));
       setEmailDraft(buildEmailDraft(updatedRows));
       setJdText(buildJdText(updatedRows));
+
+      showToast("Converted to English 🔤", "success");
     } catch (e: any) {
       setError(e.message || "Transliteration failed.");
+      showToast("Transliteration failed ⚠️", "error");
     } finally {
       setLoadingAction(null);
     }
@@ -609,8 +634,11 @@ export default function CapturePage() {
       setHrBrief(buildHrBrief(restored));
       setEmailDraft(buildEmailDraft(restored));
       setJdText(buildJdText(restored));
+
+      showToast("Restored original ↩", "info");
     } catch (e: any) {
       setError("Unable to undo.");
+      showToast("Undo failed", "error");
     }
   };
 
@@ -635,9 +663,10 @@ export default function CapturePage() {
 
     try {
       await navigator.clipboard.writeText(table);
-      setStatus("Table copied to clipboard (Markdown).");
+      showToast("Table copied (Markdown) ✔", "success");
     } catch (e) {
       setError("Failed to copy table to clipboard.");
+      showToast("Copy failed", "error");
     }
   };
 
@@ -666,7 +695,8 @@ export default function CapturePage() {
     link.download = "hr-requirement-fields.csv";
     link.click();
     URL.revokeObjectURL(url);
-    setStatus("CSV exported.");
+
+    showToast("CSV exported ✅", "success");
   };
 
   // JSON export (copy to clipboard)
@@ -696,10 +726,10 @@ export default function CapturePage() {
 
     try {
       await navigator.clipboard.writeText(JSON.stringify(jsonObj, null, 2));
-      setJsonCopied(true);
-      setStatus("JSON copied to clipboard.");
+      showToast("JSON copied ✔", "success");
     } catch (e) {
       setError("Failed to copy JSON.");
+      showToast("Copy failed", "error");
     }
   };
 
@@ -707,22 +737,23 @@ export default function CapturePage() {
   const handleGenerateBrief = () => {
     if (!rows.length) {
       setError("Extract fields first, then generate the HR brief.");
+      showToast("Extract fields first", "info");
       return;
     }
     setError(null);
-    setBriefCopied(false);
     setHrBrief(buildHrBrief(rows));
-    setStatus("HR brief generated. You can copy it below.");
+    setStatus("HR brief generated.");
+    showToast("HR brief generated ✅", "success");
   };
 
   const handleCopyBrief = async () => {
     if (!hrBrief.trim()) return;
     try {
       await navigator.clipboard.writeText(hrBrief);
-      setBriefCopied(true);
-      setStatus("HR brief copied to clipboard.");
+      showToast("HR brief copied ✔", "success");
     } catch (e) {
       setError("Failed to copy HR brief.");
+      showToast("Copy failed", "error");
     }
   };
 
@@ -730,22 +761,23 @@ export default function CapturePage() {
   const handleGenerateEmail = () => {
     if (!rows.length) {
       setError("Extract fields first to generate email.");
+      showToast("Extract fields first", "info");
       return;
     }
     setError(null);
-    setEmailCopied(false);
     setEmailDraft(buildEmailDraft(rows));
     setStatus("Email draft generated.");
+    showToast("Email draft generated ✅", "success");
   };
 
   const handleCopyEmail = async () => {
     if (!emailDraft.trim()) return;
     try {
       await navigator.clipboard.writeText(emailDraft);
-      setEmailCopied(true);
-      setStatus("Email draft copied to clipboard.");
+      showToast("Email draft copied ✔", "success");
     } catch (e) {
       setError("Failed to copy email draft.");
+      showToast("Copy failed", "error");
     }
   };
 
@@ -753,11 +785,13 @@ export default function CapturePage() {
   const handleGenerateJD = () => {
     if (!rows.length) {
       setError("Extract fields first to generate a job description.");
+      showToast("Extract fields first", "info");
       return;
     }
     setError(null);
     setJdText(buildJdText(rows));
     setStatus("Short job description generated.");
+    showToast("Short JD generated ✅", "success");
   };
 
   const handleTabChange = (tab: TabId) => {
@@ -774,15 +808,13 @@ export default function CapturePage() {
     setHrBrief("");
     setEmailDraft("");
     setJdText("");
-    setBriefCopied(false);
-    setEmailCopied(false);
-    setJsonCopied(false);
     setOriginalRows(null);
     setIsTransliterated(false);
     setLoadingAction(null);
     setWhatsAppText("");
     setFileName(null);
-    setFileStatus(null);
+
+    showToast("Cleared", "info");
   };
 
   const isBusy = isListening || isExtracting || loadingAction !== null;
@@ -790,7 +822,7 @@ export default function CapturePage() {
   // Hydration-safe
   if (!mounted) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-20 text-center text-xs text-muted">
+      <div className="mx-auto max-w-4xl px-4 py-16 text-center text-xs text-muted">
         Loading interface…
       </div>
     );
@@ -808,20 +840,38 @@ export default function CapturePage() {
 
   return (
     <>
-      <div className="mx-auto max-w-4xl px-4 py-10 space-y-6">
-        {/* Top heading + actions card */}
-        <div className="ui-card2 rounded-2xl backdrop-blur-xl px-4 py-4 sm:px-6 sm:py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-lg sm:text-xl font-semibold">
-              Capture hiring conversations
-            </h1>
+      <div className="mx-auto max-w-4xl px-4 py-6 space-y-4">
+        {/* Compact Top card */}
+        <div className="ui-card2 rounded-2xl backdrop-blur-xl px-4 py-3 sm:px-5 sm:py-3.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-base sm:text-lg font-semibold">
+                  Capture hiring conversations
+                </h1>
 
-            <p className="text-[11px] sm:text-xs text-muted">
-              Speak with clients or agencies. We&apos;ll turn it into a structured HR requirement table.
-            </p>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px]"
+                  style={{
+                    background: "rgba(16,185,129,0.10)",
+                    border: "1px solid rgba(16,185,129,0.25)",
+                    color: "var(--tab-active-fg)",
+                  }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: "var(--tab-active-fg)" }}
+                  />
+                  Live
+                </span>
+              </div>
 
-            <div className="flex items-center gap-2 text-[11px] pt-1 flex-wrap">
-              <span className="text-muted">Language mode:</span>
+              <p className="text-[11px] text-muted mt-0.5">
+                Speak with clients/agencies → structured HR requirement table.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <select
                 value={lang}
                 onChange={(e) =>
@@ -829,45 +879,24 @@ export default function CapturePage() {
                 }
                 disabled={isListening}
                 className="ui-select rounded-md px-2 py-1 text-[11px]"
+                title="Language mode"
               >
-                <option value="hi-IN">Hinglish / Hindi (hi-IN)</option>
-                <option value="en-IN">English (India - en-IN)</option>
-                <option value="en-US">English (US - en-US)</option>
+                <option value="hi-IN">Hinglish (hi-IN)</option>
+                <option value="en-IN">English (en-IN)</option>
+                <option value="en-US">English (en-US)</option>
               </select>
 
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px]"
-                style={{
-                  background: "rgba(16,185,129,0.10)",
-                  border: "1px solid rgba(16,185,129,0.25)",
-                  color: "var(--tab-active-fg)",
-                }}
-              >
-                <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ background: "var(--tab-active-fg)" }}
-                />
-                Live speech
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 items-end">
-            {/* Theme switcher */}
-            <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-muted">Theme:</span>
               <select
                 value={theme}
                 onChange={(e) => setTheme(e.target.value as ThemeOption)}
                 className="ui-select rounded-md px-2 py-1 text-[11px]"
+                title="Theme"
               >
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
                 <option value="system">Smart</option>
               </select>
-            </div>
 
-            <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
                 onClick={startListening}
                 disabled={!isSupported || isListening}
@@ -884,7 +913,7 @@ export default function CapturePage() {
                     }}
                   />
                 )}
-                {isSupported ? "Start Listening" : "Not supported"}
+                {isSupported ? "Start" : "No mic"}
               </button>
 
               <button
@@ -906,8 +935,8 @@ export default function CapturePage() {
           </div>
         </div>
 
-        {/* Status line */}
-        <div className="flex items-center gap-2 text-xs flex-wrap">
+        {/* Status line (clean) */}
+        <div className="flex items-center gap-2 text-[11px] flex-wrap">
           <span
             className="inline-flex h-2 w-2 rounded-full"
             style={{
@@ -930,25 +959,11 @@ export default function CapturePage() {
               (Parsing roles, openings, budget, experience…)
             </span>
           )}
-
-          {briefCopied && (
-            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
-              HR brief copied ✔
-            </span>
-          )}
-          {emailCopied && (
-            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
-              Email draft copied ✔
-            </span>
-          )}
-          {jsonCopied && (
-            <span className="text-[10px]" style={{ color: "var(--tab-active-fg)" }}>
-              JSON copied ✔
-            </span>
-          )}
         </div>
 
-        {error && <div className="ui-danger rounded-xl px-3 py-2 text-xs">{error}</div>}
+        {error && (
+          <div className="ui-danger rounded-xl px-3 py-2 text-xs">{error}</div>
+        )}
 
         {/* Main card */}
         <div className="ui-card rounded-3xl backdrop-blur-xl shadow-xl overflow-hidden">
@@ -989,84 +1004,67 @@ export default function CapturePage() {
           </div>
 
           {/* Body */}
-          <div className="p-4 sm:p-6">
+          <div className="p-4 sm:p-5">
             {activeTab === "transcript" && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex justify-between items-center text-xs text-muted">
                   <span>Conversation text (auto-filled or paste your own)</span>
-                  <span className="text-[10px] text-muted">
-                    {transcript.length ? `${transcript.length} characters` : "empty"}
+                  <span className="text-[10px]">
+                    {transcript.length ? `${transcript.length} chars` : "empty"}
                   </span>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs text-muted">
-                    Upload transcript / JD (PDF, DOCX, TXT)
+                {/* Compact upload row */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    id="upload-transcript"
+                    type="file"
+                    accept=".pdf,.docx,.txt"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+
+                  <label
+                    htmlFor="upload-transcript"
+                    className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer select-none"
+                    title="Upload PDF/DOCX/TXT"
+                  >
+                    📄 Upload
+                    <span className="text-[10px] font-bold opacity-80">
+                      PDF/DOCX/TXT
+                    </span>
                   </label>
 
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <input
-                      id="upload-transcript"
-                      type="file"
-                      accept=".pdf,.docx,.txt"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-
-                    <label
-                      htmlFor="upload-transcript"
-                      className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold cursor-pointer select-none"
-                    >
-                      📄 Upload file
-                      <span className="text-[10px] font-bold opacity-80">
-                        PDF/DOCX/TXT
-                      </span>
-                    </label>
-
+                  <span
+                    className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] max-w-full"
+                    title={fileName || "No file chosen"}
+                  >
                     <span
-                      className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px]"
-                      title={fileName || "No file chosen"}
-                    >
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: "rgba(100,116,139,0.9)" }}
-                      />
-                      {fileName ? (
-                        <span className="max-w-[220px] sm:max-w-[320px] truncate">
-                          {fileName}
-                        </span>
-                      ) : (
-                        <span className="text-muted">No file chosen</span>
-                      )}
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: "rgba(100,116,139,0.9)" }}
+                    />
+                    <span className="max-w-[240px] sm:max-w-[360px] truncate">
+                      {fileName || "No file chosen"}
                     </span>
-                  </div>
+                  </span>
 
                   {fileName && (
-                    <p className="text-[11px] text-muted">
-                      Selected: <span className="font-medium">{fileName}</span>
-                    </p>
-                  )}
-
-                  {fileStatus && (
-                    <p
-                      className="text-[11px] rounded-xl px-3 py-2 inline-block"
-                      style={{
-                        color: "var(--tab-active-fg)",
-                        background: "rgba(16,185,129,0.10)",
-                        border: "1px solid rgba(16,185,129,0.22)",
+                    <button
+                      type="button"
+                      className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px]"
+                      onClick={() => {
+                        setFileName(null);
+                        showToast("File cleared", "info");
                       }}
+                      title="Clear selected file"
                     >
-                      {fileStatus}
-                    </p>
+                      ✕
+                    </button>
                   )}
-
-                  <p className="text-[10px] text-muted">
-                    Tip: If parsing looks odd, you can edit the text below before extraction.
-                  </p>
                 </div>
 
                 <textarea
-                  className="ui-input w-full min-h-[190px] rounded-2xl px-3 py-2 text-sm resize-y"
+                  className="ui-input w-full min-h-[150px] rounded-2xl px-3 py-2 text-sm resize-y"
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
                   readOnly={isListening}
@@ -1078,12 +1076,17 @@ export default function CapturePage() {
                     disabled={!transcript.trim() || isBusy}
                     className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
                   >
-                    {loadingAction === "extract" ? <Spinner size={14} /> : <>🔄</>}
+                    {loadingAction === "extract" ? (
+                      <Spinner size={14} />
+                    ) : (
+                      <>🔄</>
+                    )}
                     <span>Sync &amp; extract HR fields</span>
                   </button>
 
-                  <p className="text-[10px] text-muted max-w-xs text-right">
-                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or notes from a phone call.
+                  <p className="text-[10px] text-muted max-w-xs text-right hidden sm:block">
+                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or
+                    notes from a phone call.
                   </p>
                 </div>
               </div>
@@ -1095,9 +1098,9 @@ export default function CapturePage() {
                 <div className="flex flex-col gap-1 text-xs mb-1">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">Field completeness:</span>
+                      <span className="font-semibold">Completeness:</span>
                       <span style={{ color: "var(--tab-active-fg)" }}>
-                        {completeness.present} / {completeness.total} core fields
+                        {completeness.present} / {completeness.total}
                       </span>
                     </div>
 
@@ -1146,7 +1149,7 @@ export default function CapturePage() {
                         className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                         style={{ borderColor: "rgba(16,185,129,0.45)" }}
                       >
-                        {jsonCopied ? "JSON copied" : "Copy JSON"}
+                        Copy JSON
                       </button>
                     </div>
                   </div>
@@ -1166,7 +1169,7 @@ export default function CapturePage() {
 
                   {completeness.missing.length > 0 && (
                     <div className="text-[10px] text-muted">
-                      Missing core fields:{" "}
+                      Missing:{" "}
                       <span style={{ color: "rgba(245,158,11,0.95)" }}>
                         {completeness.missing.join(", ")}
                       </span>
@@ -1179,20 +1182,36 @@ export default function CapturePage() {
                   <table className="min-w-full text-[11px]">
                     <thead className="ui-thead">
                       <tr>
-                        <th className="px-2 py-2 text-left font-medium text-muted">#</th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">Field</th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">Value (editable)</th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">Category</th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">Conf.</th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">Snippet</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          #
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          Field
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          Value (editable)
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          Category
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          Conf.
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium text-muted">
+                          Snippet
+                        </th>
                       </tr>
                     </thead>
 
                     <tbody>
                       {rows.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-3 py-5 text-center text-muted">
-                            No HR fields detected yet. Extract using the transcript tab.
+                          <td
+                            colSpan={6}
+                            className="px-3 py-5 text-center text-muted"
+                          >
+                            No HR fields detected yet. Extract using the
+                            transcript tab.
                           </td>
                         </tr>
                       ) : (
@@ -1217,7 +1236,8 @@ export default function CapturePage() {
                                 <div className="flex items-center gap-1">
                                   {row.field}
                                   {sensitive && (
-                                    <span className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
+                                    <span
+                                      className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
                                       style={{
                                         background: "rgba(239,68,68,0.10)",
                                         border: "1px solid rgba(239,68,68,0.35)",
@@ -1257,7 +1277,9 @@ export default function CapturePage() {
                               </td>
 
                               <td className="px-2 py-2 align-top text-muted">
-                                {row.confidence !== undefined ? row.confidence.toFixed(2) : ""}
+                                {row.confidence !== undefined
+                                  ? row.confidence.toFixed(2)
+                                  : ""}
                               </td>
 
                               <td className="px-2 py-2 align-top text-muted max-w-[260px]">
@@ -1274,12 +1296,14 @@ export default function CapturePage() {
                 </div>
 
                 {/* Summaries */}
-                <div className="mt-4 space-y-4">
+                <div className="mt-3 space-y-4">
                   <div className="flex flex-wrap gap-2 justify-between items-center">
-                    <div className="space-y-1">
-                      <h3 className="text-xs font-semibold">Summaries & templates</h3>
+                    <div className="space-y-0.5">
+                      <h3 className="text-xs font-semibold">
+                        Summaries & templates
+                      </h3>
                       <p className="text-[10px] text-muted">
-                        Update table values if needed, then generate clean text blocks.
+                        Edit table values → generate clean text blocks.
                       </p>
                     </div>
 
@@ -1313,7 +1337,7 @@ export default function CapturePage() {
                         disabled={!rows.length || isBusy}
                         className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                       >
-                         {isBusy ? <Spinner size={12} /> : "📱 WhatsApp summary"}
+                        {isBusy ? <Spinner size={12} /> : "📱 WhatsApp"}
                       </button>
                     </div>
                   </div>
@@ -1321,7 +1345,9 @@ export default function CapturePage() {
                   {hrBrief && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">HR brief (internal notes)</h4>
+                        <h4 className="text-xs font-semibold">
+                          HR brief (internal notes)
+                        </h4>
                         <button
                           onClick={handleCopyBrief}
                           disabled={!hrBrief.trim()}
@@ -1331,7 +1357,7 @@ export default function CapturePage() {
                         </button>
                       </div>
                       <textarea
-                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
+                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={hrBrief}
                         readOnly
                       />
@@ -1341,7 +1367,9 @@ export default function CapturePage() {
                   {emailDraft && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">Email draft for client confirmation</h4>
+                        <h4 className="text-xs font-semibold">
+                          Email draft for client confirmation
+                        </h4>
                         <button
                           onClick={handleCopyEmail}
                           disabled={!emailDraft.trim()}
@@ -1351,7 +1379,7 @@ export default function CapturePage() {
                         </button>
                       </div>
                       <textarea
-                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
+                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={emailDraft}
                         readOnly
                       />
@@ -1362,7 +1390,7 @@ export default function CapturePage() {
                     <div className="space-y-2">
                       <h4 className="text-xs font-semibold">Short job description</h4>
                       <textarea
-                        className="ui-input w-full min-h-[120px] rounded-2xl px-3 py-2 text-[11px] resize-y"
+                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={jdText}
                         readOnly
                       />
@@ -1372,14 +1400,17 @@ export default function CapturePage() {
                   {whatsAppText && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">WhatsApp summary (copy & send)</h4>
+                        <h4 className="text-xs font-semibold">
+                          WhatsApp summary (copy & send)
+                        </h4>
                         <button
                           onClick={async () => {
                             try {
                               await navigator.clipboard.writeText(whatsAppText);
-                              setStatus("WhatsApp summary copied.");
+                              showToast("WhatsApp copied ✔", "success");
                             } catch {
                               setError("Failed to copy WhatsApp text.");
+                              showToast("Copy failed", "error");
                             }
                           }}
                           className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium"
@@ -1402,16 +1433,47 @@ export default function CapturePage() {
         </div>
 
         <p className="text-[10px] text-muted">
-          Privacy note: This is a prototype. For production, add consent screens, secure storage,
-          and possibly self-hosted models instead of a 3rd party.
+          Privacy note: This is a prototype. For production, add consent screens,
+          secure storage, and possibly self-hosted models instead of a 3rd party.
         </p>
       </div>
+
+      {/* Toast (auto hide) */}
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60]">
+          <div
+            className="rounded-full px-4 py-2 text-xs border backdrop-blur-xl shadow-lg"
+            style={{
+              background:
+                toast.type === "error"
+                  ? "rgba(239,68,68,0.15)"
+                  : toast.type === "info"
+                  ? "rgba(148,163,184,0.15)"
+                  : "rgba(16,185,129,0.12)",
+              borderColor:
+                toast.type === "error"
+                  ? "rgba(239,68,68,0.35)"
+                  : toast.type === "info"
+                  ? "rgba(148,163,184,0.30)"
+                  : "rgba(16,185,129,0.30)",
+              color:
+                toast.type === "error"
+                  ? "rgba(254,202,202,0.95)"
+                  : "var(--fg)",
+            }}
+          >
+            {toast.msg}
+          </div>
+        </div>
+      )}
 
       {/* Full-screen overlay loader */}
       {(loadingAction || isExtracting) && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
           <Spinner size={40} />
-          {overlayMessage && <p className="mt-3 text-xs text-slate-100">{overlayMessage}</p>}
+          {overlayMessage && (
+            <p className="mt-3 text-xs text-slate-100">{overlayMessage}</p>
+          )}
         </div>
       )}
     </>
@@ -1508,7 +1570,9 @@ function buildHrBrief(rows: PiiRowExt[]): string {
   if (openings) lines.push(`Total Openings: ${openings}`);
 
   if (expYears || expLevel) {
-    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(Boolean);
+    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(
+      Boolean
+    );
     if (expParts.length) lines.push(`Experience: ${expParts.join(" · ")}`);
   }
 
@@ -1557,7 +1621,9 @@ function buildEmailDraft(rows: PiiRowExt[]): string {
   if (workMode) summaryLines.push(`• Work mode: ${workMode}`);
 
   if (expLevel || expYears) {
-    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(Boolean);
+    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(
+      Boolean
+    );
     summaryLines.push(`• Experience: ${expParts.join(" · ")}`);
   }
 

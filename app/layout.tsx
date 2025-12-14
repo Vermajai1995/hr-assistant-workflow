@@ -17,8 +17,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-850 to-slate-950 text-slate-100">
         {/* HEADER (sticky) */}
         <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-lg">
-          <div className="mx-auto max-w-4xl px-4 py-2.5 flex items-center gap-3">
-            {/* LOGO (clickable) */}
+          <div className="mx-auto max-w-4xl px-4 py-2 flex items-center gap-3">
+            {/* LOGO */}
             <a
               href="https://vermajai1995.vercel.app/"
               className="h-9 w-9 rounded-xl overflow-hidden border border-slate-700 shadow hover:opacity-90 transition"
@@ -57,7 +57,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </main>
 
         {/* FOOTER */}
-        <footer className="border-t border-slate-800 text-xs text-slate-500 py-3 text-center">
+        <footer className="border-t border-slate-800 text-[11px] text-slate-500 py-2.5 text-center">
           Made with ❤️ · Automating HR workflows · Powered by OpenRouter
         </footer>
       </body>
