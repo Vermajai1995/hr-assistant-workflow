@@ -417,7 +417,6 @@ export default function CapturePage() {
 
     const text = transcript.trim();
 
-    // ✅ Only block if EMPTY (sample is allowed now)
     if (!text) {
       setError("Please speak something first or paste a conversation.");
       showToast("Add some transcript first", "info");
@@ -428,7 +427,9 @@ export default function CapturePage() {
     setLoadingAction("extract");
     setError(null);
     setStatus(
-      autoFromMic ? "Auto-extracting HR details…" : "Extracting structured HR details…"
+      autoFromMic
+        ? "Auto-extracting HR details…"
+        : "Extracting structured HR details…"
     );
 
     // Clear old summaries & transliteration state
@@ -480,7 +481,6 @@ export default function CapturePage() {
   const stopListening = () => {
     if (!recognitionRef.current) return;
 
-    // ✅ if already auto-extracted once, just stop mic
     if (autoExtractedThisSessionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -489,7 +489,6 @@ export default function CapturePage() {
       return;
     }
 
-    // clear any previous timer
     if (stopExtractTimeoutRef.current) {
       window.clearTimeout(stopExtractTimeoutRef.current);
       stopExtractTimeoutRef.current = null;
@@ -500,7 +499,6 @@ export default function CapturePage() {
       setStatus("Stopping…");
 
       stopExtractTimeoutRef.current = window.setTimeout(() => {
-        // ✅ run auto-extract only once per listening session
         if (autoExtractedThisSessionRef.current) return;
         if (!transcript.trim()) return;
 
@@ -548,9 +546,10 @@ export default function CapturePage() {
 
     if (openings) parts.push(`Openings: ${openings}`);
     if (expLevel || expYears) {
-      const expParts = [expLevel, expYears ? `${expYears} yrs` : undefined].filter(
-        Boolean
-      );
+      const expParts = [
+        expLevel,
+        expYears ? `${expYears} yrs` : undefined,
+      ].filter(Boolean);
       parts.push(`Exp: ${expParts.join(" · ")}`);
     }
     if (workMode) parts.push(`Mode: ${workMode}`);
@@ -575,14 +574,13 @@ export default function CapturePage() {
   // Transliteration: Hindi → English letters
   const handleTransliterate = async () => {
     try {
-      if (isTransliterated) return; // Already done
+      if (isTransliterated) return;
       if (!rows.length) return;
 
       setLoadingAction("transliterate");
       setStatus("Converting values to English...");
       setError(null);
 
-      // Save original rows only first time (current dataset)
       setOriginalRows(rows.map((r) => ({ ...r })));
 
       const values = rows.map((r) => r.value);
@@ -607,7 +605,6 @@ export default function CapturePage() {
       setIsTransliterated(true);
       setStatus("Converted to English 🔤");
 
-      // Keep summaries in sync after transliteration too
       setHrBrief(buildHrBrief(updatedRows));
       setEmailDraft(buildEmailDraft(updatedRows));
       setJdText(buildJdText(updatedRows));
@@ -630,13 +627,12 @@ export default function CapturePage() {
       setIsTransliterated(false);
       setStatus("Restored original values ↩");
 
-      // Rebuild summaries from original data
       setHrBrief(buildHrBrief(restored));
       setEmailDraft(buildEmailDraft(restored));
       setJdText(buildJdText(restored));
 
       showToast("Restored original ↩", "info");
-    } catch (e: any) {
+    } catch {
       setError("Unable to undo.");
       showToast("Undo failed", "error");
     }
@@ -664,7 +660,7 @@ export default function CapturePage() {
     try {
       await navigator.clipboard.writeText(table);
       showToast("Table copied (Markdown) ✔", "success");
-    } catch (e) {
+    } catch {
       setError("Failed to copy table to clipboard.");
       showToast("Copy failed", "error");
     }
@@ -699,7 +695,6 @@ export default function CapturePage() {
     showToast("CSV exported ✅", "success");
   };
 
-  // JSON export (copy to clipboard)
   const handleCopyJson = async () => {
     if (!rows.length) return;
 
@@ -727,13 +722,12 @@ export default function CapturePage() {
     try {
       await navigator.clipboard.writeText(JSON.stringify(jsonObj, null, 2));
       showToast("JSON copied ✔", "success");
-    } catch (e) {
+    } catch {
       setError("Failed to copy JSON.");
       showToast("Copy failed", "error");
     }
   };
 
-  // HR brief generator
   const handleGenerateBrief = () => {
     if (!rows.length) {
       setError("Extract fields first, then generate the HR brief.");
@@ -751,13 +745,12 @@ export default function CapturePage() {
     try {
       await navigator.clipboard.writeText(hrBrief);
       showToast("HR brief copied ✔", "success");
-    } catch (e) {
+    } catch {
       setError("Failed to copy HR brief.");
       showToast("Copy failed", "error");
     }
   };
 
-  // Email draft generator
   const handleGenerateEmail = () => {
     if (!rows.length) {
       setError("Extract fields first to generate email.");
@@ -775,13 +768,12 @@ export default function CapturePage() {
     try {
       await navigator.clipboard.writeText(emailDraft);
       showToast("Email draft copied ✔", "success");
-    } catch (e) {
+    } catch {
       setError("Failed to copy email draft.");
       showToast("Copy failed", "error");
     }
   };
 
-  // JD generator
   const handleGenerateJD = () => {
     if (!rows.length) {
       setError("Extract fields first to generate a job description.");
@@ -819,7 +811,6 @@ export default function CapturePage() {
 
   const isBusy = isListening || isExtracting || loadingAction !== null;
 
-  // Hydration-safe
   if (!mounted) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-16 text-center text-xs text-muted">
@@ -828,7 +819,6 @@ export default function CapturePage() {
     );
   }
 
-  // For overlay message
   const overlayMessage =
     loadingAction === "extract"
       ? "Extracting HR fields from conversation…"
@@ -999,7 +989,7 @@ export default function CapturePage() {
                   : { color: "var(--tab-inactive-fg)" }
               }
             >
-              HR fields table
+              HR fields
             </button>
           </div>
 
@@ -1123,7 +1113,7 @@ export default function CapturePage() {
                           onClick={handleUndoTransliterate}
                           className="ui-btn-secondary rounded-full px-3 py-1.5 text-[11px] font-semibold"
                         >
-                          ↩ Undo Transliteration
+                          ↩ Undo
                         </button>
                       )}
 
@@ -1132,7 +1122,7 @@ export default function CapturePage() {
                         disabled={!rows.length || isBusy}
                         className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                       >
-                        Copy table (MD)
+                        Copy MD
                       </button>
 
                       <button
@@ -1140,7 +1130,7 @@ export default function CapturePage() {
                         disabled={!rows.length || isBusy}
                         className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                       >
-                        Export CSV
+                        CSV
                       </button>
 
                       <button
@@ -1149,7 +1139,7 @@ export default function CapturePage() {
                         className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
                         style={{ borderColor: "rgba(16,185,129,0.45)" }}
                       >
-                        Copy JSON
+                        JSON
                       </button>
                     </div>
                   </div>
@@ -1177,8 +1167,107 @@ export default function CapturePage() {
                   )}
                 </div>
 
-                {/* Table */}
-                <div className="ui-table-wrap overflow-x-auto rounded-2xl">
+                {/* ✅ MOBILE CARDS */}
+                <div className="sm:hidden space-y-2">
+                  {rows.length === 0 ? (
+                    <div className="ui-card2 rounded-2xl px-3 py-3 text-[11px] text-muted">
+                      No HR fields detected yet. Extract using the transcript tab.
+                    </div>
+                  ) : (
+                    rows.map((row, idx) => {
+                      const sensitive = isSensitiveRow(row);
+                      const isLowConf =
+                        row.confidence !== undefined && row.confidence < 0.6;
+
+                      return (
+                        <div
+                          key={row.id}
+                          className={`rounded-2xl border px-3 py-3 ${
+                            sensitive ? "ui-danger" : "ui-card2"
+                          }`}
+                          style={{ borderColor: "var(--border)" }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-muted">
+                                  #{idx + 1}
+                                </span>
+                                <span className="text-xs font-semibold">
+                                  {row.field}
+                                </span>
+
+                                {sensitive && (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[9px]"
+                                    style={{
+                                      background: "rgba(239,68,68,0.10)",
+                                      border: "1px solid rgba(239,68,68,0.35)",
+                                    }}
+                                  >
+                                    ⚠ Sensitive
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                <span className={categoryBadgeClass(row.category)}>
+                                  {row.category || "—"}
+                                </span>
+
+                                {isLowConf && (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[9px]"
+                                    style={{
+                                      background: "rgba(245,158,11,0.10)",
+                                      border: "1px solid rgba(245,158,11,0.35)",
+                                      color: "rgba(245,158,11,0.95)",
+                                    }}
+                                  >
+                                    ⬇ Low conf
+                                  </span>
+                                )}
+
+                                {row.confidence !== undefined && (
+                                  <span className="text-[10px] text-muted">
+                                    Conf: {row.confidence.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2">
+                            <label className="text-[10px] text-muted">
+                              Value (editable)
+                            </label>
+                            <input
+                              className="ui-input w-full rounded-xl px-3 py-2 text-[12px] mt-1"
+                              value={row.value}
+                              onChange={(e) => handleValueChange(row.id, e)}
+                            />
+                          </div>
+
+                          <div className="mt-2">
+                            <label className="text-[10px] text-muted">
+                              Snippet
+                            </label>
+                            <div className="mt-1 text-[11px] text-muted">
+                              {row.snippet ? (
+                                <div className="line-clamp-3">{row.snippet}</div>
+                              ) : (
+                                "—"
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* ✅ DESKTOP TABLE */}
+                <div className="hidden sm:block ui-table-wrap overflow-x-auto rounded-2xl">
                   <table className="min-w-full text-[11px]">
                     <thead className="ui-thead">
                       <tr>
@@ -1210,8 +1299,8 @@ export default function CapturePage() {
                             colSpan={6}
                             className="px-3 py-5 text-center text-muted"
                           >
-                            No HR fields detected yet. Extract using the
-                            transcript tab.
+                            No HR fields detected yet. Extract using the transcript
+                            tab.
                           </td>
                         </tr>
                       ) : (
@@ -1303,7 +1392,7 @@ export default function CapturePage() {
                         Summaries & templates
                       </h3>
                       <p className="text-[10px] text-muted">
-                        Edit table values → generate clean text blocks.
+                        Edit values → generate clean text blocks.
                       </p>
                     </div>
 
@@ -1388,7 +1477,9 @@ export default function CapturePage() {
 
                   {jdText && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-semibold">Short job description</h4>
+                      <h4 className="text-xs font-semibold">
+                        Short job description
+                      </h4>
                       <textarea
                         className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
                         value={jdText}
@@ -1512,7 +1603,6 @@ function categoryBadgeClass(category: string): string {
   }
 }
 
-// very rough sensitive pattern detection
 function isSensitiveRow(row: PiiRow): boolean {
   const value = row.value || "";
   const field = row.field.toLowerCase();
@@ -1570,9 +1660,10 @@ function buildHrBrief(rows: PiiRowExt[]): string {
   if (openings) lines.push(`Total Openings: ${openings}`);
 
   if (expYears || expLevel) {
-    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(
-      Boolean
-    );
+    const expParts = [
+      expLevel,
+      expYears ? `${expYears} years` : undefined,
+    ].filter(Boolean);
     if (expParts.length) lines.push(`Experience: ${expParts.join(" · ")}`);
   }
 
@@ -1621,9 +1712,10 @@ function buildEmailDraft(rows: PiiRowExt[]): string {
   if (workMode) summaryLines.push(`• Work mode: ${workMode}`);
 
   if (expLevel || expYears) {
-    const expParts = [expLevel, expYears ? `${expYears} years` : undefined].filter(
-      Boolean
-    );
+    const expParts = [
+      expLevel,
+      expYears ? `${expYears} years` : undefined,
+    ].filter(Boolean);
     summaryLines.push(`• Experience: ${expParts.join(" · ")}`);
   }
 
