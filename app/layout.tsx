@@ -21,6 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             {/* LOGO */}
             <a
               href="https://vermajai1995.vercel.app/"
+              target="_blank"
               className="h-9 w-9 rounded-xl overflow-hidden border border-slate-700 shadow hover:opacity-90 transition"
               title="Open portfolio"
             >
