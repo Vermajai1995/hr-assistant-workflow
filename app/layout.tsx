@@ -59,7 +59,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
         {/* FOOTER */}
         <footer className="border-t border-slate-800 text-[11px] text-slate-500 py-2.5 text-center">
-          Made with ❤️ · Automating HR workflows · Powered by OpenRouter
+          Made with ❤️ · Automating HR workflows · Powered by JP
         </footer>
       </body>
     </html>
