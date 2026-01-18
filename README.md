@@ -58,9 +58,10 @@ The system highlights missing fields to improve requirement quality before shari
 
 ## Architecture Overview
 
-The following diagram shows the end-to-end flow of the HR Assistant system:
-
 ➡️ **[View Architecture Diagram](./docs/architecture.md)**
+
+This diagram illustrates how user input (voice/text/files) is processed into
+structured HR outputs such as tables, emails, JDs, and exports.
 
 ### High-level Flow
 

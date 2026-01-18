@@ -1,16 +1,15 @@
-```mermaid
 flowchart TD
-    U[User<br/>(Voice / Text / File)]
-    UI[HR Assistant UI<br/>(Next.js)]
-    API[API Routes<br/>(Extract / Transliterate)]
-    AI[AI Processing<br/>(OpenRouter – GPT-4.1-mini)]
-    DATA[Structured HR Data]
+    U["User (Voice / Text / File)"]
+    UI["HR Assistant UI (Next.js)"]
+    API["API Routes (Extract / Transliterate)"]
+    AI["AI Processing (OpenRouter – GPT-4.1-mini)"]
+    DATA["Structured HR Data"]
 
-    OUT1[Editable Table]
-    OUT2[Email Draft]
-    OUT3[Short JD]
-    OUT4[WhatsApp Text]
-    EXP[Export<br/>(CSV / JSON / MD)]
+    OUT1["Editable Table"]
+    OUT2["Email Draft"]
+    OUT3["Short JD"]
+    OUT4["WhatsApp Text"]
+    EXP["Export (CSV / JSON / MD)"]
 
     U --> UI
     UI --> API
