@@ -58,6 +58,10 @@ The system highlights missing fields to improve requirement quality before shari
 
 ## Architecture Overview
 
+The following diagram shows the end-to-end flow of the HR Assistant system:
+
+➡️ **[View Architecture Diagram](./docs/architecture.md)**
+
 ### High-level Flow
 
 The frontend remains stateless.  
