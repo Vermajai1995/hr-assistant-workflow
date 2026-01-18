@@ -64,7 +64,6 @@ This diagram illustrates how user input (voice/text/files) is processed into
 structured HR outputs such as tables, emails, JDs, and exports.
 
 ### High-level Flow
-
 The frontend remains stateless.  
 All AI processing and enrichment is handled via API routes and an external backend service.
 
@@ -79,30 +78,34 @@ All AI processing and enrichment is handled via API routes and an external backe
 
 ---
 
-## Trade-offs & Limitations
-- No persistent database for requirement history
-- Designed for single-session usage
-- Not optimized for high-volume enterprise usage
-- Assumes user review before sharing outputs
+## Limitations
+This project is intentionally scoped as a prototype and internal tooling example.
 
-These trade-offs were intentional to keep the tool lightweight and transparent.
+- No authentication or role-based access control
+- No persistent storage for captured conversations or extracted data
+- No consent management or compliance workflows (e.g. GDPR)
+- AI outputs are assistive and require human review before use
+- Not designed for high-volume or multi-tenant production usage
 
----
-
-## Data & Privacy Notes
-- This is a prototype and case study
-- No authentication or long-term storage
-- Voice and text inputs are processed transiently
-- For production use, consent screens and secure storage would be required
+These constraints were accepted to prioritize clarity, speed of iteration,
+and demonstrating system-level design rather than production hardening.
 
 ---
 
 ## Future Improvements
-- Recruiter accounts and saved history
-- Team collaboration on requirements
-- Custom extraction templates
-- ATS integrations
-- Self-hosted model options
+- Recruiter authentication with saved requirement history
+- Team collaboration and shared requirement reviews
+- Configurable extraction templates per role or company
+- Integrations with ATS and HR management systems
+- Optional self-hosted or private LLM deployments
+
+---
+
+## Data & Privacy Notes
+- This is a prototype and technical case study
+- No authentication or long-term storage is implemented
+- Voice and text inputs are processed transiently
+- For production use, explicit consent screens and secure storage would be required
 
 ---
 
@@ -120,4 +123,5 @@ These trade-offs were intentional to keep the tool lightweight and transparent.
 ---
 
 ## Status
-This project is maintained as a **public technical case study** demonstrating AI-assisted workflow automation for HR and recruitment use cases.
+This project is maintained as a **public technical case study** demonstrating
+AI-assisted workflow automation for HR and recruitment use cases.
