@@ -1,3 +1,4 @@
+```mermaid
 flowchart TD
     U["User (Voice / Text / File)"]
     UI["HR Assistant UI (Next.js)"]
