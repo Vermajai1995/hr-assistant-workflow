@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
 
+import { log } from "@/lib/server/logger";
+import { assertRateLimit } from "@/lib/server/rate-limit";
+import { transliterateValues } from "@/lib/server/transliterate";
+
 type TransliterateBody = {
-  values: string[];
+  values?: string[];
 };
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const body = (await req.json()) as TransliterateBody;
-    const values = Array.isArray(body.values) ? body.values : [];
+    const ip =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "local";
+
+    assertRateLimit(`transliterate:${ip}`, 40);
+
+    const body = (await request.json()) as TransliterateBody;
+    const values = Array.isArray(body.values)
+      ? body.values.map((value) => value.trim()).filter(Boolean)
+      : [];
 
     if (!values.length) {
       return NextResponse.json(
@@ -16,68 +29,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const prompt = `
-Transliterate the following Hindi / Hinglish words into clean English Latin letters.
-DO NOT translate meaning, ONLY transliterate sounds.
+    const result = await transliterateValues(
+      values,
+      request.headers.get("origin") || undefined
+    );
 
-Input:
-${values.map((v: string, i: number) => `${i + 1}. ${v}`).join("\n")}
-
-Return JSON array, same order, only transliterated values.
-Example output: ["Bhole Ram", "Lucknow"]
-`;
-
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || "openai/gpt-4.1-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 1200, 
-      }),
+    return NextResponse.json({ ok: true, result });
+  } catch (error) {
+    log("error", "Transliteration failed", {
+      error: error instanceof Error ? error.message : String(error),
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            `OpenRouter error: ${res.status} ${res.statusText}` +
-            (text ? ` - ${text}` : ""),
-        },
-        { status: 500 }
-      );
-    }
+    const message =
+      error instanceof Error ? error.message : "Failed to transliterate values.";
+    const status = message.toLowerCase().includes("rate limit") ? 429 : 500;
 
-    const data = await res.json();
-
-    const content = data?.choices?.[0]?.message?.content?.trim();
-    if (!content) {
-      return NextResponse.json(
-        { ok: false, error: "No content returned from model." },
-        { status: 500 }
-      );
-    }
-
-    let output: string[];
-    try {
-      output = JSON.parse(content);
-    } catch {
-      // In case model replies with ```json ... ```
-      const cleaned = content.replace(/```json|```/g, "").trim();
-      output = JSON.parse(cleaned);
-    }
-
-    return NextResponse.json({ ok: true, result: output });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Failed to transliterate" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

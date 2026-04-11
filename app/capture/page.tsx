@@ -1,27 +1,38 @@
 "use client";
 
-import React, {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  ChangeEvent,
-} from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
-type PiiRow = {
-  field: string;
-  value: string;
-  category: string;
-  confidence: number;
-  snippet?: string;
-};
+import {
+  buildSessionTitle,
+  CORE_FIELD_LABELS,
+  createCustomField,
+  getEnabledFields,
+  mergeFieldConfigs,
+  PREDEFINED_FIELDS,
+  sortRows,
+} from "@/lib/hireflow/fields";
+import { getPrivacyDisclaimer } from "@/lib/hireflow/privacy";
+import {
+  buildEmailDraft,
+  buildHrBrief,
+  buildJdText,
+  buildWhatsAppText,
+  csvEscape,
+  escapeMd,
+  getCompleteness,
+} from "@/lib/hireflow/output";
+import type {
+  ExtractResponse,
+  ExtractedFieldRow,
+  ExtractionFieldConfig,
+  GeneratedOutputs,
+  SessionSnapshot,
+} from "@/types/hireflow";
 
-type PiiRowExt = PiiRow & { id: string };
+type TabId = "capture" | "review";
+type ToastTone = "success" | "error" | "info";
 
-type TabId = "transcript" | "pii";
-
-// Minimal SpeechRecognition type (enough for our usage)
-interface SpeechRecognitionEvent extends Event {
+type SpeechRecognitionEvent = Event & {
   results: {
     [index: number]: {
       0: {
@@ -30,7 +41,7 @@ interface SpeechRecognitionEvent extends Event {
     };
     length: number;
   };
-}
+};
 
 type SpeechRecognitionType = {
   lang: string;
@@ -38,11 +49,11 @@ type SpeechRecognitionType = {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
-  onstart: ((this: SpeechRecognitionType, ev: Event) => any) | null;
-  onerror: ((this: SpeechRecognitionType, ev: any) => any) | null;
-  onend: ((this: SpeechRecognitionType, ev: Event) => any) | null;
+  onstart: ((this: SpeechRecognitionType, ev: Event) => unknown) | null;
+  onerror: ((this: SpeechRecognitionType, ev: { error?: string }) => unknown) | null;
+  onend: ((this: SpeechRecognitionType, ev: Event) => unknown) | null;
   onresult:
-    | ((this: SpeechRecognitionType, ev: SpeechRecognitionEvent) => any)
+    | ((this: SpeechRecognitionType, ev: SpeechRecognitionEvent) => unknown)
     | null;
 };
 
@@ -57,1734 +68,1115 @@ declare global {
   }
 }
 
-// Small spinner component
-function Spinner({ size = 14 }: { size?: number }) {
-  return (
-    <span
-      className="inline-block animate-spin rounded-full border-2 border-slate-300 border-t-transparent"
-      style={{ width: size, height: size }}
-    />
-  );
-}
-
-// Preferred HR field order for display & brief
-const FIELD_ORDER: string[] = [
-  "Client Name",
-  "Client Company / Agency",
-  "Client Location / City",
-  "Work Location",
-  "Position Title",
-  "Total Openings",
-  "Experience Level",
-  "Experience Required (years)",
-  "Work Mode",
-  "Required Skills / Tech Stack",
-  "Budget Range (INR/month)",
-  "Minimum Budget (INR/month)",
-  "Maximum Budget (INR/month)",
-  "Notice Period / Joining Timeline",
-  "Contract Type",
-  "Shift Timing",
-  "Other Notes",
-];
-
-// Core fields for completeness bar
-const CORE_FIELDS: string[] = [
-  "Client Name",
-  "Client Company / Agency",
-  "Client Location / City",
-  "Position Title",
-  "Total Openings",
-  "Experience Required (years)",
-  "Experience Level",
-  "Budget Range (INR/month)",
-  "Work Mode",
-];
-
-type ThemeOption = "dark" | "light" | "system";
-type LoadingAction = null | "extract" | "transliterate";
-
-type ToastType = "success" | "error" | "info";
-
-// Sample transcript – ab ye extract ho sakta hai ✅
 const SAMPLE_TRANSCRIPT =
-  "उदाहरण (Hindi + English): मेरा नाम भोले राम है और मैं लखनऊ में रहता हूं और मुझे requirement यही है कि मुझे 7 आदमी चाहिए, वह भी सॉफ्टवेयर इंजीनियर with 4 years of experience और मेरा बजट है 7000 से 15000 रुपये per month.";
+  "Need 4 React developers for a fintech client in Pune. Budget is 18 to 24 lakh fixed, hybrid model, immediate joiners preferred, and the team wants strong TypeScript and Next.js experience.";
+
+const STORAGE_KEY = "hireflow:sessions:v2";
+const MAX_RECENT_SESSIONS = 8;
+
+const EMPTY_OUTPUTS: GeneratedOutputs = {
+  brief: "",
+  email: "",
+  jd: "",
+  whatsapp: "",
+};
 
 export default function CapturePage() {
-  // Hydration fix
   const [mounted, setMounted] = useState(false);
-
-  const [isSupported, setIsSupported] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [status, setStatus] = useState<string>("Idle");
-
-  const [transcript, setTranscript] = useState<string>(SAMPLE_TRANSCRIPT);
-
-  const [rows, setRows] = useState<PiiRowExt[]>([]);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>("transcript");
+  const [tab, setTab] = useState<TabId>("capture");
+  const [transcript, setTranscript] = useState(SAMPLE_TRANSCRIPT);
+  const [rows, setRows] = useState<ExtractedFieldRow[]>([]);
+  const [selectedFields, setSelectedFields] = useState<ExtractionFieldConfig[]>(
+    PREDEFINED_FIELDS
+  );
+  const [suggestedFields, setSuggestedFields] = useState<ExtractionFieldConfig[]>(
+    []
+  );
+  const [outputs, setOutputs] = useState<GeneratedOutputs>(EMPTY_OUTPUTS);
+  const [warnings, setWarnings] = useState<ExtractResponse["warnings"]>([]);
+  const [status, setStatus] = useState("Ready to capture a hiring requirement.");
   const [error, setError] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSupported, setIsSupported] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
-
-  const [hrBrief, setHrBrief] = useState<string>("");
-  const [emailDraft, setEmailDraft] = useState<string>("");
-  const [jdText, setJdText] = useState<string>("");
-
-  // Transliteration state
-  const [originalRows, setOriginalRows] = useState<PiiRowExt[] | null>(null);
-  const [isTransliterated, setIsTransliterated] = useState(false);
-
-  // Theme state
-  const [theme, setTheme] = useState<ThemeOption>("system");
-
-  // Global loading state for overlay spinner
-  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
-
-  const [whatsAppText, setWhatsAppText] = useState<string>("");
-
-  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
-
-  // file upload states
-  const [fileName, setFileName] = useState<string | null>(null);
-  const stopExtractTimeoutRef = useRef<number | null>(null);
-  const autoExtractedThisSessionRef = useRef(false);
-
-  // Toast (snackbar)
-  const [toast, setToast] = useState<{ msg: string; type: ToastType } | null>(
+  const [customFieldName, setCustomFieldName] = useState("");
+  const [sessionId, setSessionId] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+  const [recentSessions, setRecentSessions] = useState<SessionSnapshot[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(
     null
   );
+
+  const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
-  const showToast = (msg: string, type: ToastType = "success") => {
-    setToast({ msg, type });
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 2500);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    };
-  }, []);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setError(null);
-    setFileName(file.name);
-    setTranscript("");
-
-    showToast("Reading file…", "info");
-
-    try {
-      // ---------- PDF ----------
-      if (file.type === "application/pdf") {
-        const pdfjsLib = await import("pdfjs-dist");
-        const pdfAny: any = pdfjsLib;
-
-        const v = pdfAny.version;
-        const candidates = [
-          `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.mjs`,
-          `https://cdn.jsdelivr.net/npm/pdfjs-dist@${v}/build/pdf.worker.min.js`,
-        ];
-        pdfAny.GlobalWorkerOptions.workerSrc = candidates[0];
-
-        const arrayBuffer = await file.arrayBuffer();
-        const typedArray = new Uint8Array(arrayBuffer);
-
-        const loadingTask = pdfAny.getDocument({ data: typedArray });
-        const pdf = await loadingTask.promise;
-
-        let fullText = "";
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum);
-          const content = await page.getTextContent();
-          const strings = (content.items as any[])
-            .map((item) => (item as any).str || "")
-            .join(" ");
-          fullText += strings + "\n";
-        }
-
-        setTranscript(fullText.trim());
-        showToast("PDF parsed ✅", "success");
-        return;
-      }
-
-      // ---------- DOCX ----------
-      if (
-        file.type ===
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      ) {
-        const mammoth = await import("mammoth/mammoth.browser");
-        const arrayBuffer = await file.arrayBuffer();
-        const { value } = await mammoth.extractRawText({ arrayBuffer });
-
-        setTranscript(value.trim());
-        showToast("DOCX parsed ✅", "success");
-        return;
-      }
-
-      // ---------- TXT ----------
-      if (file.type === "text/plain" || file.name.endsWith(".txt")) {
-        const text = await file.text();
-        setTranscript(text.trim());
-        showToast("Text loaded ✅", "success");
-        return;
-      }
-
-      // ---------- fallback ----------
-      const text = await file.text();
-      setTranscript(text.trim());
-      showToast("Read as text (unknown type) ⚠️", "info");
-    } catch (err) {
-      console.error("File parse error:", err);
-      showToast("Failed to parse file ⚠️", "error");
-    }
-  };
+  const enabledFields = useMemo(
+    () => getEnabledFields(selectedFields),
+    [selectedFields]
+  );
+  const completeness = useMemo(
+    () => getCompleteness(rows, CORE_FIELD_LABELS),
+    [rows]
+  );
 
   useEffect(() => {
     setMounted(true);
+    setSessionId(createSessionId());
   }, []);
 
-  // Load saved theme
   useEffect(() => {
-    if (!mounted) return;
-    try {
-      const saved = localStorage.getItem("theme");
-      if (saved === "dark" || saved === "light" || saved === "system") {
-        setTheme(saved);
-      } else {
-        setTheme("system");
-      }
-    } catch {
-      // ignore
-    }
-  }, [mounted]);
-
-  // Apply theme to <html data-theme="">
-  useEffect(() => {
-    if (!mounted) return;
-
-    const prefersDark =
-      typeof window !== "undefined" &&
-      window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-    let finalTheme: "light" | "dark" | "smart-dark" | "smart-light" = "dark";
-
-    if (theme === "system") {
-      finalTheme = prefersDark ? "smart-dark" : "smart-light";
-    } else {
-      finalTheme = theme;
-    }
-
-    document.documentElement.setAttribute("data-theme", finalTheme);
-
-    try {
-      localStorage.setItem("theme", theme);
-    } catch {}
-  }, [theme, mounted]);
-
-  // Sorted rows helpers
-  const sortRows = (raw: PiiRow[]): PiiRowExt[] => {
-    const withId: PiiRowExt[] = raw.map((r, i) => ({
-      ...r,
-      id: `${i}-${r.field}-${r.category}`,
-    }));
-
-    return withId.sort((a, b) => {
-      const aIdx = FIELD_ORDER.indexOf(a.field);
-      const bIdx = FIELD_ORDER.indexOf(b.field);
-      const aScore = aIdx === -1 ? FIELD_ORDER.length + 1 : aIdx;
-      const bScore = bIdx === -1 ? FIELD_ORDER.length + 1 : bIdx;
-      if (aScore === bScore) return 0;
-      return aScore - bScore;
-    });
-  };
-
-  const getFieldValue = (name: string): string | undefined =>
-    rows.find((r) => r.field === name)?.value;
-
-  // Completeness info
-  const completeness = useMemo(() => {
-    if (!rows.length) {
-      return {
-        total: CORE_FIELDS.length,
-        present: 0,
-        missing: CORE_FIELDS,
-        percent: 0,
-      };
-    }
-    const presentSet = new Set(
-      rows.map((r) => r.field).filter((f) => CORE_FIELDS.includes(f))
-    );
-    const present = presentSet.size;
-    const missing = CORE_FIELDS.filter((f) => !presentSet.has(f));
-    const percent = Math.round((present / CORE_FIELDS.length) * 100);
-    return { total: CORE_FIELDS.length, present, missing, percent };
-  }, [rows]);
-
-  // Init / re-init speech recognition on language change
-  useEffect(() => {
-    if (!mounted) return;
-    if (typeof window === "undefined") return;
-
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      setIsSupported(false);
-      setStatus("Speech recognition not supported in this browser.");
+    if (!mounted) {
       return;
     }
 
-    const recognition = new SR();
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as SessionSnapshot[];
+      if (Array.isArray(parsed)) {
+        setRecentSessions(parsed);
+      }
+    } catch {
+      setRecentSessions([]);
+    }
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || !rows.length) {
+      return;
+    }
+
+    setOutputs({
+      brief: buildHrBrief(rows),
+      email: buildEmailDraft(rows),
+      jd: buildJdText(rows),
+      whatsapp: buildWhatsAppText(rows),
+    });
+  }, [rows, mounted]);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setIsSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
     recognition.lang = lang;
     recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onstart = () => {
       setIsListening(true);
-      setStatus(`Listening… (${lang}) Speak normally (Hindi/English).`);
+      setStatus("Listening for the hiring conversation...");
       setError(null);
     };
 
-    recognition.onerror = (event: any) => {
-      console.error("Speech error", event);
-      setStatus(`Speech error: ${event.error || "unknown"}`);
+    recognition.onresult = (event) => {
+      let value = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        value += `${event.results[index][0].transcript} `;
+      }
+      setTranscript(value.trim());
+    };
+
+    recognition.onerror = (event) => {
+      setError(
+        event.error === "not-allowed"
+          ? "Microphone access was denied. Please allow mic permissions and try again."
+          : `Speech recognition error: ${event.error || "unknown"}`
+      );
+      setStatus("Microphone capture failed.");
       setIsListening(false);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      setStatus("Stopped listening.");
-    };
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalTranscript = "";
-      for (let i = 0; i < event.results.length; i++) {
-        finalTranscript += event.results[i][0].transcript + " ";
-      }
-      setTranscript(finalTranscript.trim());
+      setStatus("Microphone stopped.");
     };
 
     recognitionRef.current = recognition;
     setIsSupported(true);
-    if (!isListening) {
-      setStatus("Ready to listen.");
-    }
 
     return () => {
       try {
         recognition.stop();
       } catch {
-        // ignore
+        // no-op
       }
     };
   }, [lang, mounted]);
 
-  const startListening = () => {
-    if (!recognitionRef.current) return;
-
-    autoExtractedThisSessionRef.current = false;
-
-    if (stopExtractTimeoutRef.current) {
-      window.clearTimeout(stopExtractTimeoutRef.current);
-      stopExtractTimeoutRef.current = null;
+  useEffect(() => {
+    if (!mounted) {
+      return;
     }
 
-    // Fresh session: clear everything + transliteration cache
-    setRows([]);
-    setHrBrief("");
-    setEmailDraft("");
-    setJdText("");
-    setOriginalRows(null);
-    setIsTransliterated(false);
-    setWhatsAppText("");
-    setError(null);
+    if (!transcript.trim() && !rows.length) {
+      return;
+    }
+
+    const snapshot = buildSnapshot({
+      sessionId,
+      transcript,
+      rows,
+      selectedFields,
+      suggestedFields,
+      outputs,
+      warnings,
+      consentAccepted,
+      shareUrl,
+    });
+
+    const nextSessions = [
+      snapshot,
+      ...recentSessions.filter((session) => session.id !== snapshot.id),
+    ].slice(0, MAX_RECENT_SESSIONS);
 
     try {
-      recognitionRef.current.lang = lang;
-      recognitionRef.current.start();
-    } catch (e) {
-      console.error(e);
-      setError("Could not start microphone. Please check browser permissions.");
-      showToast("Mic permission issue", "error");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSessions));
+      setRecentSessions(nextSessions);
+    } catch {
+      // ignore localStorage failures
     }
-  };
+  }, [
+    mounted,
+    transcript,
+    rows,
+    selectedFields,
+    suggestedFields,
+    outputs,
+    warnings,
+    consentAccepted,
+    shareUrl,
+    sessionId,
+  ]);
 
-  const handleExtractPII = async (autoFromMic = false) => {
-    if (isExtracting || loadingAction) return;
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
-    const text = transcript.trim();
+  function showToast(message: string, tone: ToastTone = "success") {
+    setToast({ message, tone });
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2600);
+  }
 
-    if (!text) {
-      setError("Please speak something first or paste a conversation.");
-      showToast("Add some transcript first", "info");
+  async function handleExtract() {
+    if (!consentAccepted) {
+      setError("Please confirm consent before processing hiring data.");
+      return;
+    }
+
+    if (!transcript.trim()) {
+      setError("Add a transcript, file, or live voice capture before extracting.");
       return;
     }
 
     setIsExtracting(true);
-    setLoadingAction("extract");
     setError(null);
-    setStatus(
-      autoFromMic
-        ? "Auto-extracting HR details…"
-        : "Extracting structured HR details…"
-    );
-
-    // Clear old summaries & transliteration state
-    setHrBrief("");
-    setEmailDraft("");
-    setJdText("");
-    setOriginalRows(null);
-    setIsTransliterated(false);
+    setStatus("Extracting fields, suggested attributes, and polished outputs...");
 
     try {
-      const res = await fetch("/api/extract-pii", {
+      const response = await fetch("/api/extract-pii", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text: transcript,
+          selectedFields,
+          consentAccepted,
+        }),
       });
 
-      const data = await res.json();
+      const data = (await response.json()) as ExtractResponse & { error?: string };
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to extract PII");
+      if (!response.ok) {
+        throw new Error(data.error || "Extraction failed.");
       }
 
-      const sorted: PiiRowExt[] = sortRows(data.rows || []);
-      setRows(sorted);
-      setStatus(
-        sorted.length
-          ? `Found ${sorted.length} key fields for this requirement.`
-          : "No useful fields found in this conversation."
+      const nextRows = sortRows(data.rows);
+      setRows(nextRows);
+      setSuggestedFields(mergeFieldConfigs([], data.suggestedFields));
+      setWarnings(data.warnings);
+      setOutputs(data.outputs);
+      setStatus(data.extractionSummary);
+      setTab("review");
+      showToast(`Extracted ${nextRows.length} fields`, "success");
+    } catch (extractError) {
+      setError(
+        extractError instanceof Error
+          ? extractError.message
+          : "Unexpected extraction failure."
       );
-      setActiveTab("pii");
-
-      // Auto-sync summaries with latest rows
-      setHrBrief(buildHrBrief(sorted));
-      setEmailDraft(buildEmailDraft(sorted));
-      setJdText(buildJdText(sorted));
-
-      showToast(`Extracted ${sorted.length} fields ✅`, "success");
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message || "Unexpected error while extracting PII.");
-      setStatus("Idle");
-      showToast("Extraction failed ⚠️", "error");
+      setStatus("Extraction did not complete.");
+      showToast("Extraction failed", "error");
     } finally {
       setIsExtracting(false);
-      setLoadingAction(null);
     }
-  };
+  }
 
-  const stopListening = () => {
-    if (!recognitionRef.current) return;
-
-    if (autoExtractedThisSessionRef.current) {
-      try {
-        recognitionRef.current.stop();
-        setStatus("Stopping…");
-      } catch {}
-      return;
-    }
-
-    if (stopExtractTimeoutRef.current) {
-      window.clearTimeout(stopExtractTimeoutRef.current);
-      stopExtractTimeoutRef.current = null;
-    }
-
-    try {
-      recognitionRef.current.stop();
-      setStatus("Stopping…");
-
-      stopExtractTimeoutRef.current = window.setTimeout(() => {
-        if (autoExtractedThisSessionRef.current) return;
-        if (!transcript.trim()) return;
-
-        autoExtractedThisSessionRef.current = true;
-        handleExtractPII(true);
-      }, 500);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleGenerateWhatsApp = () => {
+  async function handleTransliterate() {
     if (!rows.length) {
-      setError("Extract fields first to generate WhatsApp summary.");
-      showToast("Extract fields first", "info");
       return;
     }
-    setError(null);
 
-    const position = getFieldValue("Position Title") || "Software Engineer";
-    const clientName = getFieldValue("Client Name");
-    const clientCompany = getFieldValue("Client Company / Agency");
-    const clientCity =
-      getFieldValue("Client Location / City") ||
-      getFieldValue("Work Location") ||
-      "";
-    const openings = getFieldValue("Total Openings");
-    const expYears = getFieldValue("Experience Required (years)");
-    const expLevel = getFieldValue("Experience Level");
-    const budget = getFieldValue("Budget Range (INR/month)");
-    const skills = getFieldValue("Required Skills / Tech Stack");
-    const workMode = getFieldValue("Work Mode");
+    setIsExtracting(true);
+    setStatus("Transliterating extracted values into clean English text...");
 
-    const parts: string[] = [];
-
-    if (clientName || clientCompany) {
-      parts.push(
-        `Client: ${[clientName, clientCompany].filter(Boolean).join(" | ")}`
-      );
-    }
-
-    let firstLine = `Role: ${position}`;
-    if (clientCity) firstLine += ` (${clientCity})`;
-    parts.push(firstLine);
-
-    if (openings) parts.push(`Openings: ${openings}`);
-    if (expLevel || expYears) {
-      const expParts = [
-        expLevel,
-        expYears ? `${expYears} yrs` : undefined,
-      ].filter(Boolean);
-      parts.push(`Exp: ${expParts.join(" · ")}`);
-    }
-    if (workMode) parts.push(`Mode: ${workMode}`);
-    if (budget) parts.push(`Budget: ${budget}`);
-    if (skills) parts.push(`Skills: ${skills}`);
-
-    const msg =
-      parts.join(" | ") +
-      "\n\nIf this looks interesting, ping me and I’ll share full JD + next steps.";
-
-    setWhatsAppText(msg);
-    setStatus("WhatsApp summary generated.");
-    showToast("WhatsApp summary ready ✅", "success");
-  };
-
-  // Inline edit handler
-  const handleValueChange = (id: string, e: ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, value } : r)));
-  };
-
-  // Transliteration: Hindi → English letters
-  const handleTransliterate = async () => {
     try {
-      if (isTransliterated) return;
-      if (!rows.length) return;
-
-      setLoadingAction("transliterate");
-      setStatus("Converting values to English...");
-      setError(null);
-
-      setOriginalRows(rows.map((r) => ({ ...r })));
-
-      const values = rows.map((r) => r.value);
-
-      const res = await fetch("/api/transliterate", {
+      const response = await fetch("/api/transliterate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values }),
+        body: JSON.stringify({
+          values: rows.map((row) => row.value),
+        }),
       });
 
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error);
+      const data = (await response.json()) as {
+        ok: boolean;
+        result?: string[];
+        error?: string;
+      };
 
-      const updated = data.result as string[];
+      if (!response.ok || !data.ok || !data.result) {
+        throw new Error(data.error || "Transliteration failed.");
+      }
 
-      const updatedRows: PiiRowExt[] = rows.map((r, i) => ({
-        ...r,
-        value: updated[i] || r.value,
+      const nextRows = rows.map((row, index) => ({
+        ...row,
+        value: data.result?.[index] || row.value,
       }));
 
-      setRows(updatedRows);
-      setIsTransliterated(true);
-      setStatus("Converted to English 🔤");
-
-      setHrBrief(buildHrBrief(updatedRows));
-      setEmailDraft(buildEmailDraft(updatedRows));
-      setJdText(buildJdText(updatedRows));
-
-      showToast("Converted to English 🔤", "success");
-    } catch (e: any) {
-      setError(e.message || "Transliteration failed.");
-      showToast("Transliteration failed ⚠️", "error");
+      setRows(nextRows);
+      setStatus("Converted extracted values into clean English text.");
+      showToast("Converted values to English", "success");
+    } catch (transliterateError) {
+      setError(
+        transliterateError instanceof Error
+          ? transliterateError.message
+          : "Unexpected transliteration failure."
+      );
+      showToast("Transliteration failed", "error");
     } finally {
-      setLoadingAction(null);
+      setIsExtracting(false);
     }
-  };
+  }
 
-  const handleUndoTransliterate = () => {
+  async function handleShare() {
+    if (!rows.length) {
+      setError("Extract at least one session before generating a share link.");
+      return;
+    }
+
+    setIsSharing(true);
+    setError(null);
+
     try {
-      if (!originalRows) return;
+      const snapshot = buildSnapshot({
+        sessionId,
+        transcript,
+        rows,
+        selectedFields,
+        suggestedFields,
+        outputs,
+        warnings,
+        consentAccepted,
+        shareUrl,
+      });
 
-      const restored = originalRows.map((r) => ({ ...r }));
-      setRows(restored);
-      setIsTransliterated(false);
-      setStatus("Restored original values ↩");
+      const response = await fetch("/api/sessions/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot }),
+      });
 
-      setHrBrief(buildHrBrief(restored));
-      setEmailDraft(buildEmailDraft(restored));
-      setJdText(buildJdText(restored));
+      const data = (await response.json()) as {
+        shareId?: string;
+        shareUrl?: string;
+        error?: string;
+      };
 
-      showToast("Restored original ↩", "info");
-    } catch {
-      setError("Unable to undo.");
-      showToast("Undo failed", "error");
+      if (!response.ok || !data.shareUrl) {
+        throw new Error(data.error || "Share link generation failed.");
+      }
+
+      setShareUrl(data.shareUrl);
+      await navigator.clipboard.writeText(data.shareUrl);
+      setStatus("Created a read-only share link and copied it to your clipboard.");
+      showToast("Share link copied", "success");
+    } catch (shareError) {
+      setError(
+        shareError instanceof Error
+          ? shareError.message
+          : "Could not create a share link."
+      );
+      showToast("Share failed", "error");
+    } finally {
+      setIsSharing(false);
     }
-  };
+  }
 
-  const handleCopyAsMarkdown = async () => {
-    if (!rows.length) return;
+  function handleStartListening() {
+    if (!consentAccepted) {
+      setError("Please confirm recording consent before using the microphone.");
+      return;
+    }
 
+    if (!recognitionRef.current) {
+      setError("Speech recognition is not available in this browser.");
+      return;
+    }
+
+    setRows([]);
+    setWarnings([]);
+    setOutputs(EMPTY_OUTPUTS);
+    setShareUrl("");
+    setTab("capture");
+
+    try {
+      recognitionRef.current.lang = lang;
+      recognitionRef.current.start();
+    } catch {
+      setError("Unable to start the microphone. Please retry in Chrome.");
+    }
+  }
+
+  function handleStopListening() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleRowValueChange(id: string | undefined, value: string) {
+    setRows((currentRows) =>
+      currentRows.map((row) => (row.id === id ? { ...row, value } : row))
+    );
+  }
+
+  function handleFieldToggle(key: string) {
+    setSelectedFields((currentFields) =>
+      currentFields.map((field) =>
+        field.key === key ? { ...field, enabled: !field.enabled } : field
+      )
+    );
+  }
+
+  function handleAddCustomField() {
+    const name = customFieldName.trim();
+    if (!name) {
+      return;
+    }
+
+    const customField = createCustomField(name);
+    setSelectedFields((currentFields) => mergeFieldConfigs(currentFields, [customField]));
+    setCustomFieldName("");
+    showToast(`Added "${name}"`, "success");
+  }
+
+  function handleAcceptSuggestedField(field: ExtractionFieldConfig) {
+    const enabledField = { ...field, enabled: true };
+    setSelectedFields((currentFields) => mergeFieldConfigs(currentFields, [enabledField]));
+    setSuggestedFields((currentFields) =>
+      currentFields.filter((item) => item.key !== field.key)
+    );
+    showToast(`Added "${field.label}" to selected fields`, "success");
+  }
+
+  function handleRestoreSession(snapshot: SessionSnapshot) {
+    setSessionId(snapshot.id);
+    setTranscript(snapshot.transcript);
+    setRows(snapshot.rows);
+    setSelectedFields(snapshot.selectedFields);
+    setSuggestedFields(snapshot.suggestedFields);
+    setOutputs(snapshot.outputs);
+    setWarnings(snapshot.warnings);
+    setConsentAccepted(snapshot.consentAccepted);
+    setShareUrl(snapshot.shareUrl || "");
+    setStatus(`Loaded session from ${formatDate(snapshot.updatedAt)}.`);
+    setTab(snapshot.rows.length ? "review" : "capture");
+    setError(null);
+  }
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setFileName(file.name);
+    setStatus(`Parsing ${file.name}...`);
+    setError(null);
+
+    try {
+      if (file.type === "application/pdf") {
+        const pdfjs = await import("pdfjs-dist");
+        const pdfModule = pdfjs as unknown as {
+          getDocument: (options: { data: Uint8Array }) => { promise: Promise<any> };
+          GlobalWorkerOptions: { workerSrc: string };
+          version: string;
+        };
+
+        pdfModule.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfModule.version}/build/pdf.worker.min.mjs`;
+
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfModule.getDocument({ data: new Uint8Array(buffer) }).promise;
+        let parsedText = "";
+
+        for (let page = 1; page <= pdf.numPages; page += 1) {
+          const pdfPage = await pdf.getPage(page);
+          const content = await pdfPage.getTextContent();
+          parsedText += `${(content.items as Array<{ str?: string }>).map((item) => item.str || "").join(" ")}\n`;
+        }
+
+        setTranscript(parsedText.trim());
+      } else if (
+        file.type ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ) {
+        const mammoth = await import("mammoth/mammoth.browser");
+        const result = await mammoth.extractRawText({
+          arrayBuffer: await file.arrayBuffer(),
+        });
+        setTranscript(result.value.trim());
+      } else {
+        setTranscript((await file.text()).trim());
+      }
+
+      showToast(`Loaded ${file.name}`, "success");
+      setTab("capture");
+      setRows([]);
+    } catch {
+      setError(`Failed to parse ${file.name}. Try TXT, DOCX, or a cleaner PDF.`);
+      showToast("File parsing failed", "error");
+    }
+  }
+
+  function handleReset() {
+    setSessionId(createSessionId());
+    setTranscript(SAMPLE_TRANSCRIPT);
+    setRows([]);
+    setSuggestedFields([]);
+    setWarnings([]);
+    setOutputs(EMPTY_OUTPUTS);
+    setConsentAccepted(false);
+    setShareUrl("");
+    setStatus("Started a fresh session.");
+    setError(null);
+    setTab("capture");
+    setFileName("");
+  }
+
+  async function copyText(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(`${label} copied`, "success");
+    } catch {
+      setError(`Could not copy ${label.toLowerCase()}.`);
+      showToast("Clipboard failed", "error");
+    }
+  }
+
+  function copyMarkdownTable() {
     const header =
-      "| # | Field | Value | Category | Confidence | Snippet |\n" +
-      "|---|-------|-------|----------|------------|---------|\n";
-
-    const rowsStr = rows
-      .map((row, idx) => {
-        const conf = row.confidence?.toFixed(2) ?? "";
-        const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
-        return `| ${idx + 1} | ${escapeMd(row.field)} | ${escapeMd(
-          row.value
-        )} | ${escapeMd(row.category)} | ${conf} | ${escapeMd(snippet)} |`;
-      })
+      "| # | Field | Value | Category | Confidence | Snippet |\n|---|---|---|---|---|---|\n";
+    const body = rows
+      .map(
+        (row, index) =>
+          `| ${index + 1} | ${escapeMd(row.field)} | ${escapeMd(row.value)} | ${escapeMd(
+            row.category
+          )} | ${row.confidence.toFixed(2)} | ${escapeMd(row.snippet || "")} |`
+      )
       .join("\n");
+    void copyText(`${header}${body}`, "Markdown table");
+  }
 
-    const table = header + rowsStr;
-
-    try {
-      await navigator.clipboard.writeText(table);
-      showToast("Table copied (Markdown) ✔", "success");
-    } catch {
-      setError("Failed to copy table to clipboard.");
-      showToast("Copy failed", "error");
-    }
-  };
-
-  const handleExportCSV = () => {
-    if (!rows.length) return;
-
-    let csv = "Index,Field,Value,Category,Confidence,Snippet\n";
-
-    rows.forEach((row, idx) => {
-      const snippet = row.snippet ? row.snippet.replace(/\n/g, " ") : "";
-      csv +=
-        [
-          idx + 1,
-          csvEscape(row.field),
-          csvEscape(row.value),
-          csvEscape(row.category),
-          row.confidence?.toFixed(2) ?? "",
-          csvEscape(snippet),
-        ].join(",") + "\n";
-    });
+  function exportCsv() {
+    const csv =
+      "Index,Field,Value,Category,Confidence,Snippet\n" +
+      rows
+        .map(
+          (row, index) =>
+            [
+              index + 1,
+              csvEscape(row.field),
+              csvEscape(row.value),
+              csvEscape(row.category),
+              row.confidence.toFixed(2),
+              csvEscape(row.snippet || ""),
+            ].join(",")
+        )
+        .join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "hr-requirement-fields.csv";
+    link.download = "hireflow-session.csv";
     link.click();
     URL.revokeObjectURL(url);
-
-    showToast("CSV exported ✅", "success");
-  };
-
-  const handleCopyJson = async () => {
-    if (!rows.length) return;
-
-    const jsonObj: any = {
-      clientName: getFieldValue("Client Name") || null,
-      clientCompany: getFieldValue("Client Company / Agency") || null,
-      clientCity: getFieldValue("Client Location / City") || null,
-      workLocation: getFieldValue("Work Location") || null,
-      positionTitle: getFieldValue("Position Title") || null,
-      totalOpenings: getFieldValue("Total Openings") || null,
-      experienceYears: getFieldValue("Experience Required (years)") || null,
-      experienceLevel: getFieldValue("Experience Level") || null,
-      workMode: getFieldValue("Work Mode") || null,
-      skills: getFieldValue("Required Skills / Tech Stack") || null,
-      budgetRangeInrPerMonth: getFieldValue("Budget Range (INR/month)") || null,
-      minBudgetInrPerMonth: getFieldValue("Minimum Budget (INR/month)") || null,
-      maxBudgetInrPerMonth: getFieldValue("Maximum Budget (INR/month)") || null,
-      noticePeriod: getFieldValue("Notice Period / Joining Timeline") || null,
-      contractType: getFieldValue("Contract Type") || null,
-      shiftTiming: getFieldValue("Shift Timing") || null,
-      otherNotes: getFieldValue("Other Notes") || null,
-      rawRows: rows.map(({ id, ...rest }) => rest),
-    };
-
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(jsonObj, null, 2));
-      showToast("JSON copied ✔", "success");
-    } catch {
-      setError("Failed to copy JSON.");
-      showToast("Copy failed", "error");
-    }
-  };
-
-  const handleGenerateBrief = () => {
-    if (!rows.length) {
-      setError("Extract fields first, then generate the HR brief.");
-      showToast("Extract fields first", "info");
-      return;
-    }
-    setError(null);
-    setHrBrief(buildHrBrief(rows));
-    setStatus("HR brief generated.");
-    showToast("HR brief generated ✅", "success");
-  };
-
-  const handleCopyBrief = async () => {
-    if (!hrBrief.trim()) return;
-    try {
-      await navigator.clipboard.writeText(hrBrief);
-      showToast("HR brief copied ✔", "success");
-    } catch {
-      setError("Failed to copy HR brief.");
-      showToast("Copy failed", "error");
-    }
-  };
-
-  const handleGenerateEmail = () => {
-    if (!rows.length) {
-      setError("Extract fields first to generate email.");
-      showToast("Extract fields first", "info");
-      return;
-    }
-    setError(null);
-    setEmailDraft(buildEmailDraft(rows));
-    setStatus("Email draft generated.");
-    showToast("Email draft generated ✅", "success");
-  };
-
-  const handleCopyEmail = async () => {
-    if (!emailDraft.trim()) return;
-    try {
-      await navigator.clipboard.writeText(emailDraft);
-      showToast("Email draft copied ✔", "success");
-    } catch {
-      setError("Failed to copy email draft.");
-      showToast("Copy failed", "error");
-    }
-  };
-
-  const handleGenerateJD = () => {
-    if (!rows.length) {
-      setError("Extract fields first to generate a job description.");
-      showToast("Extract fields first", "info");
-      return;
-    }
-    setError(null);
-    setJdText(buildJdText(rows));
-    setStatus("Short job description generated.");
-    showToast("Short JD generated ✅", "success");
-  };
-
-  const handleTabChange = (tab: TabId) => {
-    if (isListening) return;
-    setActiveTab(tab);
-  };
-
-  const handleReset = () => {
-    setTranscript(SAMPLE_TRANSCRIPT);
-    setRows([]);
-    setError(null);
-    setStatus("Idle");
-    setActiveTab("transcript");
-    setHrBrief("");
-    setEmailDraft("");
-    setJdText("");
-    setOriginalRows(null);
-    setIsTransliterated(false);
-    setLoadingAction(null);
-    setWhatsAppText("");
-    setFileName(null);
-
-    showToast("Cleared", "info");
-  };
-
-  const isBusy = isListening || isExtracting || loadingAction !== null;
-
-  if (!mounted) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-16 text-center text-xs text-muted">
-        Loading interface…
-      </div>
-    );
+    showToast("CSV exported", "success");
   }
 
-  const overlayMessage =
-    loadingAction === "extract"
-      ? "Extracting HR fields from conversation…"
-      : loadingAction === "transliterate"
-      ? "Converting Hindi text to English letters…"
-      : isListening
-      ? "Listening…"
-      : "";
+  const groupedFields = groupFields(selectedFields);
+
+  if (!mounted) {
+    return <div className="mx-auto max-w-5xl px-4 py-20 text-sm text-muted">Loading HireFlow...</div>;
+  }
 
   return (
-    <>
-      <div className="mx-auto max-w-4xl px-4 py-6 space-y-4">
-        {/* Compact Top card */}
-        <div className="ui-card2 rounded-2xl backdrop-blur-xl px-4 py-3 sm:px-5 sm:py-3.5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-base sm:text-lg font-semibold">
-                  Capture hiring conversations
-                </h1>
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      <section className="hero-panel">
+        <div className="max-w-3xl">
+          <p className="eyebrow">Production-ready hiring intake</p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance">
+            Capture voice, documents, and transcripts into a clean HR-ready workspace.
+          </h1>
+          <p className="mt-4 max-w-2xl text-base text-muted">
+            HireFlow turns unstructured hiring conversations into reusable recruiter outputs, with consent, privacy checks, recent sessions, and read-only sharing built in.
+          </p>
+        </div>
 
-                <span
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px]"
-                  style={{
-                    background: "rgba(16,185,129,0.10)",
-                    border: "1px solid rgba(16,185,129,0.25)",
-                    color: "var(--tab-active-fg)",
-                  }}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ background: "var(--tab-active-fg)" }}
-                  />
-                  Live
-                </span>
+        <div className="hero-actions">
+          <button
+            onClick={handleStartListening}
+            disabled={!isSupported || isListening || isExtracting}
+            className="primary-link"
+          >
+            {isListening ? "Listening..." : "Start voice capture"}
+          </button>
+          <button
+            onClick={handleExtract}
+            disabled={isExtracting}
+            className="ghost-link"
+          >
+            {isExtracting ? "Extracting..." : "Run extraction"}
+          </button>
+        </div>
+      </section>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
+        <main className="space-y-6">
+          <section className="panel p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <p className="eyebrow">Session controls</p>
+                <h2 className="mt-2 text-2xl font-semibold">Capture requirement</h2>
               </div>
 
-              <p className="text-[11px] text-muted mt-0.5">
-                Speak with clients/agencies → structured HR requirement table.
-              </p>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={lang}
+                  onChange={(event) =>
+                    setLang(event.target.value as "hi-IN" | "en-IN" | "en-US")
+                  }
+                  className="input-shell min-w-[140px]"
+                >
+                  <option value="hi-IN">Hinglish</option>
+                  <option value="en-IN">English (IN)</option>
+                  <option value="en-US">English (US)</option>
+                </select>
+                <button
+                  onClick={handleStopListening}
+                  disabled={!isListening}
+                  className="ghost-link"
+                >
+                  Stop
+                </button>
+                <button onClick={handleReset} className="ghost-link">
+                  New session
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <select
-                value={lang}
-                onChange={(e) =>
-                  setLang(e.target.value as "hi-IN" | "en-IN" | "en-US")
-                }
-                disabled={isListening}
-                className="ui-select rounded-md px-2 py-1 text-[11px]"
-                title="Language mode"
-              >
-                <option value="hi-IN">Hinglish (hi-IN)</option>
-                <option value="en-IN">English (en-IN)</option>
-                <option value="en-US">English (en-US)</option>
-              </select>
-
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as ThemeOption)}
-                className="ui-select rounded-md px-2 py-1 text-[11px]"
-                title="Theme"
-              >
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-                <option value="system">Smart</option>
-              </select>
-
-              <button
-                onClick={startListening}
-                disabled={!isSupported || isListening}
-                className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-              >
-                {isListening ? (
-                  <Spinner size={12} />
-                ) : (
-                  <span
-                    className="h-2 w-2 rounded-full border"
-                    style={{
-                      background: "rgba(5,46,43,0.85)",
-                      borderColor: "rgba(255,255,255,0.35)",
-                    }}
-                  />
-                )}
-                {isSupported ? "Start" : "No mic"}
-              </button>
-
-              <button
-                onClick={stopListening}
-                disabled={!isListening}
-                className="ui-btn-secondary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-              >
-                ⏹ Stop
-              </button>
-
-              <button
-                onClick={handleReset}
-                disabled={isBusy || (!transcript && !rows.length)}
-                className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-              >
-                ↺ Clear
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Status line (clean) */}
-        <div className="flex items-center gap-2 text-[11px] flex-wrap">
-          <span
-            className="inline-flex h-2 w-2 rounded-full"
-            style={{
-              background: isListening
-                ? "var(--tab-active-fg)"
-                : isExtracting || loadingAction
-                ? "rgba(245,158,11,0.9)"
-                : "rgba(100,116,139,0.9)",
-              boxShadow: isListening
-                ? "0 0 0 4px rgba(16,185,129,0.15)"
-                : isExtracting || loadingAction
-                ? "0 0 0 4px rgba(245,158,11,0.15)"
-                : "none",
-            }}
-          />
-          <span>{status}</span>
-
-          {isExtracting && (
-            <span className="text-[10px] text-muted">
-              (Parsing roles, openings, budget, experience…)
-            </span>
-          )}
-        </div>
-
-        {error && (
-          <div className="ui-danger rounded-xl px-3 py-2 text-xs">{error}</div>
-        )}
-
-        {/* Main card */}
-        <div className="ui-card rounded-3xl backdrop-blur-xl shadow-xl overflow-hidden">
-          {/* Tabs */}
-          <div className="ui-tabbar flex">
-            <button
-              onClick={() => handleTabChange("transcript")}
-              className="flex-1 px-4 py-2.5 text-xs font-medium transition-colors"
-              style={
-                activeTab === "transcript"
-                  ? {
-                      background: "var(--tab-active-bg)",
-                      color: "var(--tab-active-fg)",
-                      borderBottom: "2px solid var(--tab-active-fg)",
-                    }
-                  : { color: "var(--tab-inactive-fg)" }
-              }
-            >
-              Transcript
-            </button>
-
-            <button
-              onClick={() => handleTabChange("pii")}
-              disabled={isListening}
-              className="flex-1 px-4 py-2.5 text-xs font-medium transition-colors disabled:opacity-50"
-              style={
-                activeTab === "pii"
-                  ? {
-                      background: "var(--tab-active-bg)",
-                      color: "var(--tab-active-fg)",
-                      borderBottom: "2px solid var(--tab-active-fg)",
-                    }
-                  : { color: "var(--tab-inactive-fg)" }
-              }
-            >
-              HR fields
-            </button>
-          </div>
-
-          {/* Body */}
-          <div className="p-4 sm:p-5">
-            {activeTab === "transcript" && (
-              <div className="space-y-3">
-                <div className="flex justify-between items-center text-xs text-muted">
-                  <span>Conversation text (auto-filled or paste your own)</span>
-                  <span className="text-[10px]">
-                    {transcript.length ? `${transcript.length} chars` : "empty"}
-                  </span>
-                </div>
-
-                {/* Compact upload row */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    id="upload-transcript"
-                    type="file"
-                    accept=".pdf,.docx,.txt"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-
-                  <label
-                    htmlFor="upload-transcript"
-                    className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer select-none"
-                    title="Upload PDF/DOCX/TXT"
-                  >
-                    📄 Upload
-                    <span className="text-[10px] font-bold opacity-80">
-                      PDF/DOCX/TXT
+            <div className="mt-5 grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
+              <div className="space-y-4">
+                <div className="notice-card">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={consentAccepted}
+                      onChange={(event) => setConsentAccepted(event.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-white/20 bg-transparent"
+                    />
+                    <span>
+                      <strong className="text-slate-100">
+                        Consent required before recording or processing.
+                      </strong>
+                      <span className="mt-1 block text-sm text-muted">
+                        Confirm that the speaker knows this conversation is being processed for hiring operations.
+                      </span>
                     </span>
                   </label>
-
-                  <span
-                    className="ui-btn-ghost inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] max-w-full"
-                    title={fileName || "No file chosen"}
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: "rgba(100,116,139,0.9)" }}
-                    />
-                    <span className="max-w-[240px] sm:max-w-[360px] truncate">
-                      {fileName || "No file chosen"}
-                    </span>
-                  </span>
-
-                  {fileName && (
-                    <button
-                      type="button"
-                      className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px]"
-                      onClick={() => {
-                        setFileName(null);
-                        showToast("File cleared", "info");
-                      }}
-                      title="Clear selected file"
-                    >
-                      ✕
-                    </button>
-                  )}
                 </div>
 
-                <textarea
-                  className="ui-input w-full min-h-[150px] rounded-2xl px-3 py-2 text-sm resize-y"
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  readOnly={isListening}
-                />
+                <div className="privacy-card">
+                  <p className="text-sm font-medium text-slate-100">Privacy guardrail</p>
+                  <p className="mt-2 text-sm text-muted">{getPrivacyDisclaimer()}</p>
+                </div>
 
-                <div className="flex flex-wrap gap-3 justify-between items-center">
-                  <button
-                    onClick={() => handleExtractPII(false)}
-                    disabled={!transcript.trim() || isBusy}
-                    className="ui-btn-primary inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
-                  >
-                    {loadingAction === "extract" ? (
-                      <Spinner size={14} />
-                    ) : (
-                      <>🔄</>
-                    )}
-                    <span>Sync &amp; extract HR fields</span>
-                  </button>
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="text-sm font-medium text-slate-200">
+                      Transcript or notes
+                    </label>
+                    <span className="text-xs text-muted">
+                      {transcript.length} characters
+                    </span>
+                  </div>
 
-                  <p className="text-[10px] text-muted max-w-xs text-right hidden sm:block">
-                    Tip: You can paste Zoom/Meet transcript, WhatsApp export, or
-                    notes from a phone call.
-                  </p>
+                  <textarea
+                    value={transcript}
+                    onChange={(event) => setTranscript(event.target.value)}
+                    className="input-shell mt-3 min-h-[240px] w-full resize-y p-4 text-sm"
+                    placeholder="Paste a recruiter call, upload a requirement doc, or capture voice input..."
+                  />
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <label className="ghost-link cursor-pointer">
+                      Upload PDF / DOCX / TXT
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.txt"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </label>
+                    {fileName ? <span className="pill">{fileName}</span> : null}
+                    <button
+                      onClick={handleExtract}
+                      disabled={isExtracting}
+                      className="primary-link"
+                    >
+                      {isExtracting ? "Extracting..." : "Sync & extract fields"}
+                    </button>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {activeTab === "pii" && (
               <div className="space-y-4">
-                {/* Completeness bar */}
-                <div className="flex flex-col gap-1 text-xs mb-1">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">Completeness:</span>
-                      <span style={{ color: "var(--tab-active-fg)" }}>
-                        {completeness.present} / {completeness.total}
-                      </span>
+                <div className="soft-panel p-4">
+                  <p className="text-sm font-semibold text-slate-100">Enabled extraction fields</p>
+                  <p className="mt-1 text-xs text-muted">
+                    Keep the default set lean, then add only the fields you want extracted and included in outputs.
+                  </p>
+
+                  <div className="mt-4 space-y-4">
+                    {Object.entries(groupedFields).map(([category, items]) => (
+                      <div key={category}>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                          {category}
+                        </p>
+                        <div className="mt-2 grid gap-2">
+                          {items.map((field) => (
+                            <label key={field.key} className="field-toggle">
+                              <input
+                                type="checkbox"
+                                checked={field.enabled}
+                                onChange={() => handleFieldToggle(field.key)}
+                              />
+                              <span>
+                                <strong>{field.label}</strong>
+                                <small>{field.description}</small>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 border-t border-white/10 pt-4">
+                    <label className="text-sm font-medium text-slate-200">
+                      Add custom field
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={customFieldName}
+                        onChange={(event) => setCustomFieldName(event.target.value)}
+                        placeholder="Visa Sponsorship"
+                        className="input-shell w-full px-3 py-2 text-sm"
+                      />
+                      <button onClick={handleAddCustomField} className="ghost-link">
+                        Add
+                      </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {!isTransliterated ? (
-                        <button
-                          onClick={handleTransliterate}
-                          disabled={!rows.length || isBusy}
-                          className="ui-btn-secondary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                        >
-                          {loadingAction === "transliterate" ? (
-                            <Spinner size={12} />
-                          ) : (
-                            "🌐"
-                          )}{" "}
-                          Convert to English
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleUndoTransliterate}
-                          className="ui-btn-secondary rounded-full px-3 py-1.5 text-[11px] font-semibold"
-                        >
-                          ↩ Undo
-                        </button>
-                      )}
+          <section className="panel p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Review workspace</p>
+                <h2 className="mt-2 text-2xl font-semibold">Extraction review</h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setTab("capture")}
+                  className={tab === "capture" ? "tab-active" : "tab-idle"}
+                >
+                  Capture
+                </button>
+                <button
+                  onClick={() => setTab("review")}
+                  className={tab === "review" ? "tab-active" : "tab-idle"}
+                >
+                  Review
+                </button>
+              </div>
+            </div>
 
-                      <button
-                        onClick={handleCopyAsMarkdown}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-                      >
+            {error ? (
+              <div className="error-card mt-5">
+                <strong>Something needs attention.</strong>
+                <p className="mt-1 text-sm">{error}</p>
+              </div>
+            ) : null}
+
+            <div className="mt-5 status-row">
+              <span className={isListening ? "status-dot live" : isExtracting ? "status-dot busy" : "status-dot idle"} />
+              <span>{status}</span>
+            </div>
+
+            {tab === "review" ? (
+              <div className="mt-6 space-y-5">
+                <div className="soft-panel p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">
+                        Completeness
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {completeness.present}/{completeness.total} core fields are filled.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={handleTransliterate} className="ghost-link">
+                        Convert to English
+                      </button>
+                      <button onClick={copyMarkdownTable} className="ghost-link">
                         Copy MD
                       </button>
-
-                      <button
-                        onClick={handleExportCSV}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-                      >
-                        CSV
+                      <button onClick={exportCsv} className="ghost-link">
+                        Export CSV
                       </button>
-
-                      <button
-                        onClick={handleCopyJson}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-                        style={{ borderColor: "rgba(16,185,129,0.45)" }}
-                      >
-                        JSON
+                      <button onClick={handleShare} className="primary-link" disabled={isSharing}>
+                        {isSharing ? "Sharing..." : "Create share link"}
                       </button>
                     </div>
                   </div>
 
-                  <div
-                    className="w-full h-1.5 rounded-full overflow-hidden"
-                    style={{ background: "rgba(148,163,184,0.15)" }}
-                  >
+                  <div className="mt-4 progress-track">
                     <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${completeness.percent}%`,
-                        background: "var(--btn-primary-bg)",
-                      }}
+                      className="progress-bar"
+                      style={{ width: `${completeness.percent}%` }}
                     />
                   </div>
 
-                  {completeness.missing.length > 0 && (
-                    <div className="text-[10px] text-muted">
-                      Missing:{" "}
-                      <span style={{ color: "rgba(245,158,11,0.95)" }}>
-                        {completeness.missing.join(", ")}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                  {completeness.missing.length ? (
+                    <p className="mt-2 text-xs text-amber-200">
+                      Missing: {completeness.missing.join(", ")}
+                    </p>
+                  ) : null}
 
-                {/* ✅ MOBILE CARDS */}
-                <div className="sm:hidden space-y-2">
-                  {rows.length === 0 ? (
-                    <div className="ui-card2 rounded-2xl px-3 py-3 text-[11px] text-muted">
-                      No HR fields detected yet. Extract using the transcript tab.
-                    </div>
-                  ) : (
-                    rows.map((row, idx) => {
-                      const sensitive = isSensitiveRow(row);
-                      const isLowConf =
-                        row.confidence !== undefined && row.confidence < 0.6;
-
-                      return (
-                        <div
-                          key={row.id}
-                          className={`rounded-2xl border px-3 py-3 ${
-                            sensitive ? "ui-danger" : "ui-card2"
-                          }`}
-                          style={{ borderColor: "var(--border)" }}
+                  {shareUrl ? (
+                    <div className="notice-card mt-4">
+                      <p className="text-sm font-medium text-slate-100">
+                        Read-only share link
+                      </p>
+                      <div className="mt-2 flex flex-col gap-2 md:flex-row">
+                        <input
+                          readOnly
+                          value={shareUrl}
+                          className="input-shell w-full px-3 py-2 text-sm"
+                        />
+                        <button
+                          onClick={() => copyText(shareUrl, "Share link")}
+                          className="ghost-link"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] text-muted">
-                                  #{idx + 1}
-                                </span>
-                                <span className="text-xs font-semibold">
-                                  {row.field}
-                                </span>
-
-                                {sensitive && (
-                                  <span
-                                    className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[9px]"
-                                    style={{
-                                      background: "rgba(239,68,68,0.10)",
-                                      border: "1px solid rgba(239,68,68,0.35)",
-                                    }}
-                                  >
-                                    ⚠ Sensitive
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                <span className={categoryBadgeClass(row.category)}>
-                                  {row.category || "—"}
-                                </span>
-
-                                {isLowConf && (
-                                  <span
-                                    className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[9px]"
-                                    style={{
-                                      background: "rgba(245,158,11,0.10)",
-                                      border: "1px solid rgba(245,158,11,0.35)",
-                                      color: "rgba(245,158,11,0.95)",
-                                    }}
-                                  >
-                                    ⬇ Low conf
-                                  </span>
-                                )}
-
-                                {row.confidence !== undefined && (
-                                  <span className="text-[10px] text-muted">
-                                    Conf: {row.confidence.toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-2">
-                            <label className="text-[10px] text-muted">
-                              Value (editable)
-                            </label>
-                            <input
-                              className="ui-input w-full rounded-xl px-3 py-2 text-[12px] mt-1"
-                              value={row.value}
-                              onChange={(e) => handleValueChange(row.id, e)}
-                            />
-                          </div>
-
-                          <div className="mt-2">
-                            <label className="text-[10px] text-muted">
-                              Snippet
-                            </label>
-                            <div className="mt-1 text-[11px] text-muted">
-                              {row.snippet ? (
-                                <div className="line-clamp-3">{row.snippet}</div>
-                              ) : (
-                                "—"
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
-                {/* ✅ DESKTOP TABLE */}
-                <div className="hidden sm:block ui-table-wrap overflow-x-auto rounded-2xl">
-                  <table className="min-w-full text-[11px]">
-                    <thead className="ui-thead">
+                {warnings.length ? (
+                  <div className="warning-stack">
+                    {warnings.map((warning, index) => (
+                      <div key={`${warning.type}-${index}`} className="warning-card">
+                        <strong>{warning.label}</strong>
+                        <p>{warning.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {suggestedFields.length ? (
+                  <div className="soft-panel p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-100">
+                          Suggested fields
+                        </p>
+                        <p className="mt-1 text-xs text-muted">
+                          The AI found extra attributes you may want to track on the next run.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {suggestedFields.map((field) => (
+                        <button
+                          key={field.key}
+                          onClick={() => handleAcceptSuggestedField(field)}
+                          className="pill-action"
+                        >
+                          + {field.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="table-shell overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead>
                       <tr>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          #
-                        </th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          Field
-                        </th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          Value (editable)
-                        </th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          Category
-                        </th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          Conf.
-                        </th>
-                        <th className="px-2 py-2 text-left font-medium text-muted">
-                          Snippet
-                        </th>
+                        <th className="px-4 py-3">Field</th>
+                        <th className="px-4 py-3">Value</th>
+                        <th className="px-4 py-3">Category</th>
+                        <th className="px-4 py-3">Confidence</th>
                       </tr>
                     </thead>
-
                     <tbody>
-                      {rows.length === 0 ? (
+                      {rows.length ? (
+                        rows.map((row) => (
+                          <tr key={row.id || row.field} className="border-t border-white/10">
+                            <td className="px-4 py-3 align-top text-slate-200">
+                              <div className="font-medium">{row.field}</div>
+                              {row.snippet ? (
+                                <p className="mt-1 text-xs text-muted">{row.snippet}</p>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <input
+                                value={row.value}
+                                onChange={(event) =>
+                                  handleRowValueChange(row.id, event.target.value)
+                                }
+                                className="input-shell w-full px-3 py-2 text-sm"
+                              />
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <span className="pill">{row.category}</span>
+                            </td>
+                            <td className="px-4 py-3 align-top text-slate-400">
+                              {row.confidence.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
                         <tr>
-                          <td
-                            colSpan={6}
-                            className="px-3 py-5 text-center text-muted"
-                          >
-                            No HR fields detected yet. Extract using the transcript
-                            tab.
+                          <td colSpan={4} className="px-4 py-10 text-center text-muted">
+                            Extract a transcript to populate the structured table.
                           </td>
                         </tr>
-                      ) : (
-                        rows.map((row, idx) => {
-                          const sensitive = isSensitiveRow(row);
-                          const isLowConf =
-                            row.confidence !== undefined && row.confidence < 0.6;
-
-                          return (
-                            <tr
-                              key={row.id}
-                              className={`border-t ui-row-hover ${
-                                idx % 2 === 0 ? "ui-row-odd" : "ui-row-even"
-                              } ${sensitive ? "ui-danger" : ""}`}
-                              style={{ borderColor: "var(--border)" }}
-                            >
-                              <td className="px-2 py-2 align-top text-muted">
-                                {idx + 1}
-                              </td>
-
-                              <td className="px-2 py-2 align-top font-medium">
-                                <div className="flex items-center gap-1">
-                                  {row.field}
-                                  {sensitive && (
-                                    <span
-                                      className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
-                                      style={{
-                                        background: "rgba(239,68,68,0.10)",
-                                        border: "1px solid rgba(239,68,68,0.35)",
-                                      }}
-                                    >
-                                      ⚠ Sensitive
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-
-                              <td className="px-2 py-2 align-top">
-                                <input
-                                  className="ui-input w-full rounded-md px-2 py-[3px] text-[11px]"
-                                  value={row.value}
-                                  onChange={(e) => handleValueChange(row.id, e)}
-                                />
-                              </td>
-
-                              <td className="px-2 py-2 align-top">
-                                <span className={categoryBadgeClass(row.category)}>
-                                  {row.category || "—"}
-                                </span>
-
-                                {isLowConf && (
-                                  <span
-                                    className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px]"
-                                    style={{
-                                      background: "rgba(245,158,11,0.10)",
-                                      border: "1px solid rgba(245,158,11,0.35)",
-                                      color: "rgba(245,158,11,0.95)",
-                                    }}
-                                  >
-                                    ⬇ Low conf
-                                  </span>
-                                )}
-                              </td>
-
-                              <td className="px-2 py-2 align-top text-muted">
-                                {row.confidence !== undefined
-                                  ? row.confidence.toFixed(2)
-                                  : ""}
-                              </td>
-
-                              <td className="px-2 py-2 align-top text-muted max-w-[260px]">
-                                <span className="line-clamp-3">
-                                  {row.snippet || "—"}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
                       )}
                     </tbody>
                   </table>
                 </div>
 
-                {/* Summaries */}
-                <div className="mt-3 space-y-4">
-                  <div className="flex flex-wrap gap-2 justify-between items-center">
-                    <div className="space-y-0.5">
-                      <h3 className="text-xs font-semibold">
-                        Summaries & templates
-                      </h3>
-                      <p className="text-[10px] text-muted">
-                        Edit values → generate clean text blocks.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={handleGenerateBrief}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                      >
-                        {isBusy ? <Spinner size={12} /> : "📝 HR brief"}
-                      </button>
-
-                      <button
-                        onClick={handleGenerateEmail}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                      >
-                        {isBusy ? <Spinner size={12} /> : "✉ Email draft"}
-                      </button>
-
-                      <button
-                        onClick={handleGenerateJD}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                      >
-                        {isBusy ? <Spinner size={12} /> : "📄 Short JD"}
-                      </button>
-
-                      <button
-                        onClick={handleGenerateWhatsApp}
-                        disabled={!rows.length || isBusy}
-                        className="ui-btn-primary rounded-full px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                      >
-                        {isBusy ? <Spinner size={12} /> : "📱 WhatsApp"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {hrBrief && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">
-                          HR brief (internal notes)
-                        </h4>
-                        <button
-                          onClick={handleCopyBrief}
-                          disabled={!hrBrief.trim()}
-                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-                        >
-                          Copy brief
-                        </button>
-                      </div>
-                      <textarea
-                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
-                        value={hrBrief}
-                        readOnly
-                      />
-                    </div>
-                  )}
-
-                  {emailDraft && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">
-                          Email draft for client confirmation
-                        </h4>
-                        <button
-                          onClick={handleCopyEmail}
-                          disabled={!emailDraft.trim()}
-                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-                        >
-                          Copy email
-                        </button>
-                      </div>
-                      <textarea
-                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
-                        value={emailDraft}
-                        readOnly
-                      />
-                    </div>
-                  )}
-
-                  {jdText && (
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-semibold">
-                        Short job description
-                      </h4>
-                      <textarea
-                        className="ui-input w-full min-h-[110px] rounded-2xl px-3 py-2 text-[11px] resize-y"
-                        value={jdText}
-                        readOnly
-                      />
-                    </div>
-                  )}
-
-                  {whatsAppText && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h4 className="text-xs font-semibold">
-                          WhatsApp summary (copy & send)
-                        </h4>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(whatsAppText);
-                              showToast("WhatsApp copied ✔", "success");
-                            } catch {
-                              setError("Failed to copy WhatsApp text.");
-                              showToast("Copy failed", "error");
-                            }
-                          }}
-                          className="ui-btn-ghost rounded-full px-3 py-1.5 text-[11px] font-medium"
-                        >
-                          Copy text
-                        </button>
-                      </div>
-
-                      <textarea
-                        className="ui-input w-full min-h-[80px] rounded-2xl px-3 py-2 text-[11px] resize-y"
-                        value={whatsAppText}
-                        readOnly
-                      />
-                    </div>
-                  )}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <OutputCard
+                    title="HR brief"
+                    value={outputs.brief}
+                    onCopy={() => copyText(outputs.brief, "HR brief")}
+                  />
+                  <OutputCard
+                    title="Email draft"
+                    value={outputs.email}
+                    onCopy={() => copyText(outputs.email, "Email draft")}
+                  />
+                  <OutputCard
+                    title="Short JD"
+                    value={outputs.jd}
+                    onCopy={() => copyText(outputs.jd, "Short JD")}
+                  />
+                  <OutputCard
+                    title="WhatsApp summary"
+                    value={outputs.whatsapp}
+                    onCopy={() => copyText(outputs.whatsapp, "WhatsApp summary")}
+                  />
                 </div>
               </div>
+            ) : (
+              <div className="mt-6 soft-panel p-6 text-sm text-muted">
+                Use the capture tab to bring in voice, text, or file inputs. Once extraction runs, this review space will show the structured table, warnings, suggested fields, and generated outputs.
+              </div>
             )}
-          </div>
-        </div>
+          </section>
+        </main>
 
-        <p className="text-[10px] text-muted">
-          Privacy note: This is a prototype. For production, add consent screens,
-          secure storage, and possibly self-hosted models instead of a 3rd party.
-        </p>
+        <aside className="space-y-6">
+          <section className="panel p-5">
+            <p className="eyebrow">Recent sessions</p>
+            <h2 className="mt-2 text-xl font-semibold">Resume previous work</h2>
+            <div className="mt-4 space-y-3">
+              {recentSessions.length ? (
+                recentSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    onClick={() => handleRestoreSession(session)}
+                    className="session-card"
+                  >
+                    <span className="session-title">{session.title}</span>
+                    <span className="session-meta">
+                      {session.rows.length} fields · {formatDate(session.updatedAt)}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="text-sm text-muted">
+                  Recent sessions will appear here after your first extraction.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel p-5">
+            <p className="eyebrow">Lean architecture</p>
+            <h2 className="mt-2 text-xl font-semibold">What changed</h2>
+            <ul className="mt-4 space-y-3 text-sm text-muted">
+              <li>Shared AI, privacy, output, and rate-limit logic moved into reusable `lib/` modules.</li>
+              <li>Consent, privacy redaction, recent sessions, and share links are part of the default workflow.</li>
+              <li>Dynamic field selection keeps extraction flexible without overwhelming the user.</li>
+            </ul>
+          </section>
+        </aside>
       </div>
 
-      {/* Toast (auto hide) */}
-      {toast && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60]">
-          <div
-            className="rounded-full px-4 py-2 text-xs border backdrop-blur-xl shadow-lg"
-            style={{
-              background:
-                toast.type === "error"
-                  ? "rgba(239,68,68,0.15)"
-                  : toast.type === "info"
-                  ? "rgba(148,163,184,0.15)"
-                  : "rgba(16,185,129,0.12)",
-              borderColor:
-                toast.type === "error"
-                  ? "rgba(239,68,68,0.35)"
-                  : toast.type === "info"
-                  ? "rgba(148,163,184,0.30)"
-                  : "rgba(16,185,129,0.30)",
-              color:
-                toast.type === "error"
-                  ? "rgba(254,202,202,0.95)"
-                  : "var(--fg)",
-            }}
-          >
-            {toast.msg}
-          </div>
-        </div>
-      )}
-
-      {/* Full-screen overlay loader */}
-      {(loadingAction || isExtracting) && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
-          <Spinner size={40} />
-          {overlayMessage && (
-            <p className="mt-3 text-xs text-slate-100">{overlayMessage}</p>
-          )}
-        </div>
-      )}
-    </>
+      {toast ? (
+        <div className={`toast ${toast.tone}`}>{toast.message}</div>
+      ) : null}
+    </div>
   );
 }
 
-// --------- helpers ----------
-
-function escapeMd(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\n/g, " ");
-}
-
-function csvEscape(text: string): string {
-  if (text.includes(",") || text.includes('"') || text.includes("\n")) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-}
-
-function categoryBadgeClass(category: string): string {
-  const base =
-    "inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] capitalize";
-  switch (category?.toLowerCase()) {
-    case "client":
-      return `${base} bg-emerald-500/10 border-emerald-400/40 text-emerald-200`;
-    case "role":
-      return `${base} bg-cyan-500/10 border-cyan-400/40 text-cyan-200`;
-    case "openings":
-      return `${base} bg-indigo-500/10 border-indigo-400/40 text-indigo-200`;
-    case "budget":
-      return `${base} bg-amber-500/10 border-amber-400/40 text-amber-200`;
-    case "location":
-      return `${base} bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-200`;
-    default:
-      return `${base} bg-slate-500/10 border-slate-500/30 text-slate-200`;
-  }
-}
-
-function isSensitiveRow(row: PiiRow): boolean {
-  const value = row.value || "";
-  const field = row.field.toLowerCase();
-
-  const aadhaarLike = /\b\d{4}\s?\d{4}\s?\d{4}\b/.test(value);
-  const panLike = /\b[A-Z]{5}\d{4}[A-Z]\b/i.test(value);
-  const longDigits = /\b\d{10,}\b/.test(value);
-
-  if (aadhaarLike || panLike || longDigits) return true;
-  if (field.includes("aadhaar") || field.includes("pan") || field.includes("id"))
-    return true;
-
-  return false;
-}
-
-// ---------- summary builders ----------
-
-function getFieldFromRows(rows: PiiRowExt[], name: string): string | undefined {
-  return rows.find((r) => r.field === name)?.value;
-}
-
-function buildHrBrief(rows: PiiRowExt[]): string {
-  if (!rows.length) return "";
-
-  const clientName = getFieldFromRows(rows, "Client Name");
-  const clientCompany = getFieldFromRows(rows, "Client Company / Agency");
-  const clientCity =
-    getFieldFromRows(rows, "Client Location / City") ||
-    getFieldFromRows(rows, "Work Location") ||
-    undefined;
-  const position = getFieldFromRows(rows, "Position Title");
-  const openings = getFieldFromRows(rows, "Total Openings");
-  const expYears = getFieldFromRows(rows, "Experience Required (years)");
-  const expLevel = getFieldFromRows(rows, "Experience Level");
-  const budgetRange = getFieldFromRows(rows, "Budget Range (INR/month)");
-  const workMode = getFieldFromRows(rows, "Work Mode");
-  const skills = getFieldFromRows(rows, "Required Skills / Tech Stack");
-  const notice = getFieldFromRows(rows, "Notice Period / Joining Timeline");
-  const contractType = getFieldFromRows(rows, "Contract Type");
-  const shift = getFieldFromRows(rows, "Shift Timing");
-
-  const lines: string[] = [];
-
-  const titleRole = position || "Role";
-  const titleLoc = clientCity ? ` (${clientCity})` : "";
-  lines.push(`Hiring Requirement – ${titleRole}${titleLoc}`);
-  lines.push("------------------------------------------------");
-  lines.push("");
-
-  if (clientName || clientCompany) {
-    const parts = [clientName, clientCompany].filter(Boolean).join(" | ");
-    lines.push(`Client: ${parts}`);
-  }
-  if (clientCity) lines.push(`Location: ${clientCity}`);
-  if (openings) lines.push(`Total Openings: ${openings}`);
-
-  if (expYears || expLevel) {
-    const expParts = [
-      expLevel,
-      expYears ? `${expYears} years` : undefined,
-    ].filter(Boolean);
-    if (expParts.length) lines.push(`Experience: ${expParts.join(" · ")}`);
-  }
-
-  if (budgetRange) lines.push(`Budget: ${budgetRange} (per month, approx.)`);
-  if (workMode) lines.push(`Work Mode: ${workMode}`);
-  if (contractType) lines.push(`Type: ${contractType}`);
-  if (shift) lines.push(`Shift: ${shift}`);
-  if (notice) lines.push(`Notice / Joining: ${notice}`);
-
-  if (skills) {
-    lines.push("");
-    lines.push(`Key skills / tech stack: ${skills}`);
-  }
-
-  lines.push("");
-  lines.push("All captured fields:");
-  rows.forEach((row) => lines.push(`- ${row.field}: ${row.value}`));
-
-  return lines.join("\n");
-}
-
-function buildEmailDraft(rows: PiiRowExt[]): string {
-  if (!rows.length) return "";
-
-  const clientName = getFieldFromRows(rows, "Client Name") || "there";
-  const clientCompany = getFieldFromRows(rows, "Client Company / Agency") || "";
-  const position = getFieldFromRows(rows, "Position Title") || "the role";
-  const clientCity =
-    getFieldFromRows(rows, "Client Location / City") ||
-    getFieldFromRows(rows, "Work Location") ||
-    "";
-  const openings = getFieldFromRows(rows, "Total Openings");
-  const expYears = getFieldFromRows(rows, "Experience Required (years)");
-  const expLevel = getFieldFromRows(rows, "Experience Level");
-  const budgetRange = getFieldFromRows(rows, "Budget Range (INR/month)");
-  const workMode = getFieldFromRows(rows, "Work Mode");
-
-  const subjectRole = position;
-  const subjectLoc = clientCity ? ` – ${clientCity}` : "";
-  const subject = `Requirement summary – ${subjectRole}${subjectLoc}`;
-
-  const summaryLines: string[] = [];
-  if (position) summaryLines.push(`• Position: ${position}`);
-  if (openings) summaryLines.push(`• Openings: ${openings}`);
-  if (clientCity) summaryLines.push(`• Location: ${clientCity}`);
-  if (workMode) summaryLines.push(`• Work mode: ${workMode}`);
-
-  if (expLevel || expYears) {
-    const expParts = [
-      expLevel,
-      expYears ? `${expYears} years` : undefined,
-    ].filter(Boolean);
-    summaryLines.push(`• Experience: ${expParts.join(" · ")}`);
-  }
-
-  if (budgetRange) summaryLines.push(`• Budget: ${budgetRange}`);
-
-  const emailBody = [
-    `Hi ${clientName},`,
-    "",
-    "Thank you for sharing the hiring requirement.",
-    "Here is the summary based on our conversation:",
-    "",
-    ...summaryLines,
-    "",
-    "If anything looks off or needs correction (openings, budget, experience, etc.),",
-    "please reply with the updated details and we will adjust it on our side.",
-    "",
-    "Regards,",
-    "HR Team",
-    clientCompany,
-  ].join("\n");
-
-  return `Subject: ${subject}\n\n${emailBody}`;
-}
-
-function buildJdText(rows: PiiRowExt[]): string {
-  if (!rows.length) return "";
-
-  const position = getFieldFromRows(rows, "Position Title") || "Software Engineer";
-  const clientCity =
-    getFieldFromRows(rows, "Client Location / City") ||
-    getFieldFromRows(rows, "Work Location") ||
-    "";
-  const openings = getFieldFromRows(rows, "Total Openings");
-  const expYears = getFieldFromRows(rows, "Experience Required (years)");
-  const budgetRange = getFieldFromRows(rows, "Budget Range (INR/month)");
-  const workMode = getFieldFromRows(rows, "Work Mode");
-  const skills = getFieldFromRows(rows, "Required Skills / Tech Stack");
-
-  const lines: string[] = [];
-
-  lines.push(`${position} – Job Description`);
-  lines.push("--------------------------------");
-  lines.push("");
-  lines.push(
-    `We are hiring${openings ? ` ${openings}` : ""} ${position}${
-      clientCity ? ` for our client based in ${clientCity}` : ""
-    }.`
+function OutputCard({
+  title,
+  value,
+  onCopy,
+}: {
+  title: string;
+  value: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="soft-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+        <button onClick={onCopy} className="ghost-link">
+          Copy
+        </button>
+      </div>
+      <textarea
+        readOnly
+        value={value}
+        className="input-shell mt-4 min-h-[180px] w-full resize-y p-4 text-sm"
+      />
+    </div>
   );
+}
 
-  if (expYears) lines.push(`Experience required: around ${expYears} years.`);
-  if (workMode) lines.push(`Work mode: ${workMode}.`);
-  if (budgetRange) lines.push(`Budget range (per month): ${budgetRange}.`);
+function buildSnapshot({
+  sessionId,
+  transcript,
+  rows,
+  selectedFields,
+  suggestedFields,
+  outputs,
+  warnings,
+  consentAccepted,
+  shareUrl,
+}: {
+  sessionId: string;
+  transcript: string;
+  rows: ExtractedFieldRow[];
+  selectedFields: ExtractionFieldConfig[];
+  suggestedFields: ExtractionFieldConfig[];
+  outputs: GeneratedOutputs;
+  warnings: ExtractResponse["warnings"];
+  consentAccepted: boolean;
+  shareUrl: string;
+}): SessionSnapshot {
+  const now = new Date().toISOString();
 
-  if (skills) {
-    lines.push("");
-    lines.push("Key skills:");
-    lines.push(`- ${skills}`);
+  return {
+    id: sessionId || createSessionId(),
+    title:
+      buildSessionTitle(rows) ||
+      transcript.slice(0, 48) ||
+      "Untitled session",
+    transcript,
+    rows,
+    selectedFields,
+    suggestedFields,
+    outputs,
+    warnings,
+    createdAt: now,
+    updatedAt: now,
+    consentAccepted,
+    shareUrl,
+    shareId: shareUrl ? shareUrl.split("/").pop() : undefined,
+  };
+}
+
+function groupFields(fields: ExtractionFieldConfig[]) {
+  return fields.reduce<Record<string, ExtractionFieldConfig[]>>((groups, field) => {
+    const key = field.kind === "custom" ? "Custom" : field.kind === "suggested" ? "Suggested" : "Core";
+    groups[key] = groups[key] || [];
+    groups[key].push(field);
+    return groups;
+  }, {});
+}
+
+function createSessionId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
   }
+  return `session-${Date.now()}`;
+}
 
-  lines.push("");
-  lines.push("Responsibilities (high-level):");
-  lines.push("- Work closely with the team to deliver assigned tasks.");
-  lines.push("- Ensure quality, reliability and timely completion of project work.");
-  lines.push("- Collaborate with stakeholders and communicate progress regularly.");
-
-  lines.push("");
-  lines.push("Nice to have:");
-  lines.push("- Strong communication and ownership mindset.");
-  lines.push("- Ability to work independently with minimal supervision.");
-
-  return lines.join("\n");
+function formatDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }

@@ -1,91 +1,82 @@
 "use client";
 
 import Link from "next/link";
-import Script from "next/script";
-import { useEffect, useState } from "react";
 
 export default function HomePage() {
-  // Hydration-safe: pehle sirf lightweight loading dikhayenge
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <>
-        <div className="mx-auto max-w-2xl px-4 py-20 text-center text-xs text-slate-400">
-          Loading…
-        </div>
-
-        {/* Feedback widget script – already safe to load */}
-        <Script
-          src="https://feedback-jai-patel.vercel.app/widget.js?from=Speech%20PII%20Extractor"
-          strategy="afterInteractive"
-        />
-      </>
-    );
-  }
-
   return (
-    <>
-      <div className="mx-auto max-w-2xl px-4 py-20 text-center space-y-8">
-        {/* TITLE */}
-        <h1 className="text-4xl font-bold tracking-tight leading-snug">
-          Turn conversations into{" "}
-          <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-            structured HR data
-          </span>
-        </h1>
+    <div className="mx-auto max-w-6xl px-4 py-14">
+      <section className="hero-panel min-h-[72vh] justify-between">
+        <div className="max-w-3xl">
+          <p className="eyebrow">HireFlow</p>
+          <h1 className="mt-4 text-5xl font-semibold tracking-tight text-balance">
+            Speech to recruiter-ready hiring requirements, built for real workflows.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-muted">
+            Capture Hinglish or English hiring conversations, extract structured role fields, refine them with AI, and share a polished read-only handoff in minutes.
+          </p>
 
-        {/* SUBTEXT */}
-        <p className="text-base text-slate-300 leading-relaxed">
-          Speak in Hindi, English or mixed Hinglish. We&apos;ll transcribe your
-          conversation and automatically extract{" "}
-          <span className="text-emerald-300 font-medium">
-            name, openings, role, budget, experience
-          </span>{" "}
-          and other HR details in a neat table.
-        </p>
-
-        {/* MAIN CTA */}
-        <div className="mt-6 flex justify-center">
-          <Link
-            href="/capture"
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 
-                       px-6 py-3 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 
-                       hover:scale-[1.03] active:scale-[0.98] transition-all"
-          >
-            Let&apos;s get started →
-          </Link>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/capture" className="primary-link">
+              Open workspace
+            </Link>
+            <a
+              href="#capabilities"
+              className="ghost-link"
+            >
+              Explore capabilities
+            </a>
+          </div>
         </div>
 
-        {/* SMALL NOTE */}
-        <p className="text-[11px] text-slate-500 max-w-md mx-auto pt-2">
-          Prototype for HR teams. Please avoid sharing highly sensitive ID
-          numbers (Aadhaar, PAN, bank details, etc.).
-        </p>
-
-        {/* PORTFOLIO LINK */}
-        <div className="text-[12px] text-slate-400 pt-4">
-          Want to explore more of my apps?{" "}
-          <a
-            href="https://vermajai1995.vercel.app/"
-            target="_blank"
-            rel="noreferrer"
-            className="text-emerald-300 underline-offset-2 hover:underline"
-          >
-            Visit my portfolio →
-          </a>
+        <div className="dashboard-preview">
+          <div className="preview-card">
+            <span className="pill">Consent-first</span>
+            <span className="pill">Dynamic fields</span>
+            <span className="pill">Read-only share mode</span>
+          </div>
+          <div className="preview-panel">
+            <p className="eyebrow">What HireFlow now covers</p>
+            <ul className="mt-4 space-y-3 text-sm text-slate-200">
+              <li>Voice, transcript, and file intake in one screen</li>
+              <li>Privacy redaction before AI processing</li>
+              <li>Suggested fields like tech stack, work mode, and notice period</li>
+              <li>Recent sessions with reload and edit support</li>
+              <li>HR brief, email draft, JD, and WhatsApp output generation</li>
+            </ul>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Feedback Widget Loader */}
-      <Script
-        src="https://feedback-jai-patel.vercel.app/widget.js?from=Speech%20PII%20Extractor"
-        strategy="afterInteractive"
-      />
-    </>
+      <section id="capabilities" className="mt-10 grid gap-4 md:grid-cols-3">
+        {CAPABILITIES.map((item) => (
+          <article key={item.title} className="panel p-6">
+            <p className="eyebrow">{item.kicker}</p>
+            <h2 className="mt-3 text-2xl font-semibold">{item.title}</h2>
+            <p className="mt-3 text-sm leading-7 text-muted">{item.description}</p>
+          </article>
+        ))}
+      </section>
+    </div>
   );
 }
+
+const CAPABILITIES = [
+  {
+    kicker: "Cleaner architecture",
+    title: "Modular app and API layers",
+    description:
+      "Shared server modules now handle AI requests, rate limits, redaction, outputs, and logging so the UI can stay focused on product flow.",
+  },
+  {
+    kicker: "Safer defaults",
+    title: "Consent and privacy built in",
+    description:
+      "Recording requires consent and the backend redacts sensitive identity or banking patterns before anything reaches the model.",
+  },
+  {
+    kicker: "Production flow",
+    title: "Sessions, sharing, and polished outputs",
+    description:
+      "Recent local sessions, editable structured fields, suggested field detection, and read-only share links make the MVP feel like a usable SaaS product.",
+  },
+];

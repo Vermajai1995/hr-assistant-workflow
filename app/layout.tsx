@@ -1,66 +1,50 @@
-// app/layout.tsx
-import "./globals.css";
-import Image from "next/image";
-import type { ReactNode } from "react";
 import type { Metadata } from "next";
-import Script from "next/script";
+import type { ReactNode } from "react";
+import Link from "next/link";
+
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Speech → PII Extractor | Jai Patel",
+  title: "HireFlow",
   description:
-    "Transcribe conversations & extract structured hiring details automatically.",
+    "Speech to structured HR requirement extraction for recruiters and hiring teams.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-850 to-slate-950 text-slate-100">
-        {/* HEADER (sticky) */}
-        <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-lg">
-          <div className="mx-auto max-w-4xl px-4 py-2 flex items-center gap-3">
-            {/* LOGO */}
-            <a
-              href="https://vermajai1995.vercel.app/"
-              target="_blank"
-              className="h-9 w-9 rounded-xl overflow-hidden border border-slate-700 shadow hover:opacity-90 transition"
-              title="Open portfolio"
-            >
-              <Image
-                src="/logo.png"
-                alt="Logo"
-                width={40}
-                height={40}
-                className="object-cover"
-              />
-            </a>
+      <body>
+        <div className="site-shell">
+          <header className="site-header">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4">
+              <Link href="/" className="brand-lockup">
+                <span className="brand-mark">HF</span>
+                <span>
+                  <strong>HireFlow</strong>
+                  <small>Speech → HR Requirement Extractor</small>
+                </span>
+              </Link>
 
-            {/* TITLE BLOCK */}
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-slate-100">
-                Speech → PII Extractor
-              </span>
-              <span className="text-[11px] text-emerald-400/90">
-                by Jai Patel · Experimental HR Automation
-              </span>
+              <nav className="flex items-center gap-3">
+                <Link href="/" className="ghost-link">
+                  Home
+                </Link>
+                <Link href="/capture" className="primary-link">
+                  Workspace
+                </Link>
+              </nav>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {/* MAIN */}
-        <main className="flex-1">
-          {children}
+          <main className="flex-1">{children}</main>
 
-          {/* Feedback Widget Loader */}
-          <Script
-            src="https://feedback-jai-patel.vercel.app/?from=PII+Assistant"
-            strategy="afterInteractive"
-          />
-        </main>
-
-        {/* FOOTER */}
-        <footer className="border-t border-slate-800 text-[11px] text-slate-500 py-2.5 text-center">
-          Made with ❤️ · Automating HR workflows · Powered by JP
-        </footer>
+          <footer className="site-footer">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 py-6 text-sm text-muted md:flex-row md:items-center md:justify-between">
+              <span>Lean, production-style SaaS scaffold for recruiter workflows.</span>
+              <span>Consent-aware · Privacy-first · Shareable read-only sessions</span>
+            </div>
+          </footer>
+        </div>
       </body>
     </html>
   );

@@ -1,127 +1,89 @@
-# HR Assistant – Voice to Job Description & Hiring Summary
+# HireFlow
 
-## Overview
-This project is an AI-assisted HR workflow tool that converts unstructured hiring conversations into structured, editable, and exportable hiring artifacts.
+HireFlow is a lean, production-style Next.js SaaS starter for recruiter workflow automation. It converts raw hiring conversations into structured HR fields, editable summaries, and shareable handoff artifacts.
 
-Recruiters or hiring managers can:
-- Speak requirements
-- Paste call transcripts or notes
-- Upload documents
-- Instantly generate structured HR data, emails, and job descriptions
+## What it does
 
-The goal is to **reduce manual HR effort**, eliminate miscommunication, and standardize requirement capture.
+- Captures voice, text, and document-based hiring requirements
+- Extracts structured HR fields with confidence scores
+- Supports dynamic field selection with predefined, suggested, and custom fields
+- Generates recruiter-ready outputs:
+  - HR brief
+  - Client email draft
+  - Short job description
+  - WhatsApp summary
+- Saves recent sessions locally for reload and editing
+- Creates read-only share links for completed sessions
+- Redacts highly sensitive PII patterns before AI processing
 
----
+## Production-focused improvements
 
-## Problem Statement
-Hiring requirements are often captured via:
-- Phone calls
-- WhatsApp messages
-- Zoom / Meet conversations
-- Informal notes
+- Shared `lib/` modules for extraction, privacy, outputs, logging, and rate limiting
+- API routes separated from UI logic
+- Retry-aware OpenRouter client wrapper
+- Basic in-memory rate limiting per route
+- Local persistence for recent sessions plus file-backed share storage
+- Cleaner SaaS-style UI with explicit consent and fallback states
 
-This leads to:
-- Missing or inconsistent information
-- Repeated clarification calls
-- Manual drafting of emails and JDs
-- Loss of context across teams
+## Environment
 
----
+Create `.env.local` from `.env.example`:
 
-## Solution
-The HR Assistant captures raw hiring input and transforms it into structured outputs:
+```bash
+cp .env.example .env.local
+```
 
-- Extracted HR fields (role, location, budget, experience, etc.)
-- Editable requirement table with completeness indicators
-- Auto-generated:
-  - HR brief (internal notes)
-  - Client confirmation email
-  - Short Job Description
-  - WhatsApp-ready message
-- Export formats: CSV, JSON, Markdown
+Required values:
 
-The system highlights missing fields to improve requirement quality before sharing.
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL`
+- `OPENROUTER_BASE_URL`
 
----
+Optional:
 
-## Key Features
-- Text, paste, file upload, and voice input
-- Multi-language support (default: Hindi-EN / Hinglish)
-- One-click extraction into structured HR fields
-- Editable tables with confidence scores
-- Missing-field warnings for incomplete requirements
-- Export options: CSV, JSON, Markdown
-- Light, Dark, and Smart theme modes
-- Embedded feedback widget for continuous improvement
+- `NEXT_PUBLIC_APP_URL` for absolute share links outside localhost
 
----
+## Scripts
 
-## Architecture Overview
+```bash
+npm run dev
+npm run typecheck
+npm run build
+```
 
-➡️ **[View Architecture Diagram](./docs/architecture.md)**
+## Recommended folder structure
 
-This diagram illustrates how user input (voice/text/files) is processed into
-structured HR outputs such as tables, emails, JDs, and exports.
+```text
+app/
+  api/
+    extract-pii/
+    transliterate/
+    sessions/share/
+    share/[shareId]/
+  capture/
+  share/[shareId]/
+lib/
+  hireflow/
+    fields.ts
+    output.ts
+    privacy.ts
+  server/
+    env.ts
+    extract.ts
+    logger.ts
+    openrouter.ts
+    rate-limit.ts
+    share-store.ts
+    transliterate.ts
+types/
+  hireflow.ts
+```
 
-### High-level Flow
-The frontend remains stateless.  
-All AI processing and enrichment is handled via API routes and an external backend service.
+## Architecture
 
----
+See [docs/architecture.md](./docs/architecture.md) for the updated application flow and module boundaries.
 
-## Engineering Decisions
-- Used Next.js App Router for co-located UI and API logic
-- Kept extraction logic stateless and repeatable
-- Prioritized human review by keeping outputs editable
-- Highlighted missing fields instead of forcing assumptions
-- Separated UI concerns from backend integrations
+## Notes
 
----
-
-## Limitations
-This project is intentionally scoped as a prototype and internal tooling example.
-
-- No authentication or role-based access control
-- No persistent storage for captured conversations or extracted data
-- No consent management or compliance workflows (e.g. GDPR)
-- AI outputs are assistive and require human review before use
-- Not designed for high-volume or multi-tenant production usage
-
-These constraints were accepted to prioritize clarity, speed of iteration,
-and demonstrating system-level design rather than production hardening.
-
----
-
-## Future Improvements
-- Recruiter authentication with saved requirement history
-- Team collaboration and shared requirement reviews
-- Configurable extraction templates per role or company
-- Integrations with ATS and HR management systems
-- Optional self-hosted or private LLM deployments
-
----
-
-## Data & Privacy Notes
-- This is a prototype and technical case study
-- No authentication or long-term storage is implemented
-- Voice and text inputs are processed transiently
-- For production use, explicit consent screens and secure storage would be required
-
----
-
-## Screenshots
-
-### Step 1 – Capture Hiring Input
-![Capture Input](./docs/screenshots/capture-input.png)
-
-### Step 2 – Structured HR Fields
-![Structured Fields](./docs/screenshots/structured-fields.png)
-
-### Step 3 – Generated Outputs
-![Generated Outputs](./docs/screenshots/generated-outputs.png)
-
----
-
-## Status
-This project is maintained as a **public technical case study** demonstrating
-AI-assisted workflow automation for HR and recruitment use cases.
+- Share links use a file-backed adapter in `.data/` for this repo. In a true multi-tenant deployment, swap `lib/server/share-store.ts` with Postgres, Redis, or another durable store.
+- Recent editable sessions are stored in browser local storage to keep the product lean.
