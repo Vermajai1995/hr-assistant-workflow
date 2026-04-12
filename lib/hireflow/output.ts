@@ -1,4 +1,4 @@
-import { getFieldValue } from "@/lib/hireflow/fields";
+import { getCustomRows, getFieldValue } from "@/lib/hireflow/fields";
 import type { ExtractedFieldRow, GeneratedOutputs } from "@/types/hireflow";
 
 export function generateOutputs(rows: ExtractedFieldRow[]): GeneratedOutputs {
@@ -42,6 +42,7 @@ export function buildHrBrief(rows: ExtractedFieldRow[]) {
   const skills = getFieldValue(rows, "Required Skills / Tech Stack");
   const mode = getFieldValue(rows, "Work Mode");
   const notice = getFieldValue(rows, "Notice Period / Joining Timeline");
+  const customRows = getCustomRows(rows);
 
   const lines = [
     `Hiring Requirement - ${position}${city ? ` (${city})` : ""}`,
@@ -53,6 +54,9 @@ export function buildHrBrief(rows: ExtractedFieldRow[]) {
     mode ? `Work mode: ${mode}` : "",
     notice ? `Joining timeline: ${notice}` : "",
     skills ? `Key skills: ${skills}` : "",
+    ...(customRows.length
+      ? ["", "Custom fields:", ...customRows.map((row) => `- ${row.field}: ${row.value}`)]
+      : []),
     "",
     "Captured fields:",
     ...rows.map((row) => `- ${row.field}: ${row.value}`),
@@ -79,6 +83,7 @@ export function buildEmailDraft(rows: ExtractedFieldRow[]) {
   const budget = normalizeBudget(getFieldValue(rows, "Budget Range (INR/month)"));
   const skills = getFieldValue(rows, "Required Skills / Tech Stack");
   const workMode = getFieldValue(rows, "Work Mode");
+  const customRows = getCustomRows(rows);
 
   const bulletLines = [
     `- Position: ${role}`,
@@ -88,6 +93,7 @@ export function buildEmailDraft(rows: ExtractedFieldRow[]) {
     workMode ? `- Work mode: ${workMode}` : "",
     budget ? `- Budget: ${budget}` : "",
     skills ? `- Skills / stack: ${skills}` : "",
+    ...customRows.map((row) => `- ${row.field}: ${row.value}`),
   ].filter(Boolean);
 
   return [
@@ -121,6 +127,7 @@ export function buildJdText(rows: ExtractedFieldRow[]) {
   const budget = normalizeBudget(getFieldValue(rows, "Budget Range (INR/month)"));
   const skills = splitCsv(getFieldValue(rows, "Required Skills / Tech Stack"));
   const notice = getFieldValue(rows, "Notice Period / Joining Timeline");
+  const customRows = getCustomRows(rows);
 
   const responsibilities = buildResponsibilities(role, skills);
   const requirements = [
@@ -143,6 +150,9 @@ export function buildJdText(rows: ExtractedFieldRow[]) {
     "",
     "Required skills:",
     ...(requirements.length ? requirements : ["- Strong communication, execution discipline, and stakeholder handling"]),
+    ...(customRows.length
+      ? ["", "Additional requirement notes:", ...customRows.map((row) => `- ${row.field}: ${row.value}`)]
+      : []),
   ]
     .filter(Boolean)
     .join("\n");
@@ -164,6 +174,7 @@ export function buildWhatsAppText(rows: ExtractedFieldRow[]) {
   const openings = getFieldValue(rows, "Total Openings");
   const budget = normalizeBudget(getFieldValue(rows, "Budget Range (INR/month)"));
   const skills = getFieldValue(rows, "Required Skills / Tech Stack");
+  const customRows = getCustomRows(rows);
 
   return [
     `Role: ${role}${location ? ` (${location})` : ""}`,
@@ -171,6 +182,7 @@ export function buildWhatsAppText(rows: ExtractedFieldRow[]) {
     openings ? `Openings: ${openings}` : "",
     budget ? `Budget: ${budget}` : "",
     skills ? `Skills: ${skills}` : "",
+    ...customRows.map((row) => `${row.field}: ${row.value}`),
     "",
     "Reply if you want the full JD and submission details.",
   ]

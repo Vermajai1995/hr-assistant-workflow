@@ -138,6 +138,10 @@ export default function CapturePage() {
     () => rows.filter((row) => reviewSelection[getRowKey(row)] ?? true),
     [rows, reviewSelection]
   );
+  const customFields = useMemo(
+    () => selectedFields.filter((field) => field.kind === "custom"),
+    [selectedFields]
+  );
   const allRowsSelected =
     rows.length > 0 &&
     rows.every((row) => reviewSelection[getRowKey(row)] ?? true);
@@ -196,7 +200,8 @@ export default function CapturePage() {
       const next: Record<string, boolean> = {};
       for (const row of rows) {
         const key = getRowKey(row);
-        next[key] = current[key] ?? DEFAULT_REVIEW_FIELDS.has(row.field);
+        next[key] =
+          current[key] ?? (row.kind === "custom" || DEFAULT_REVIEW_FIELDS.has(row.field));
       }
       return next;
     });
@@ -963,7 +968,6 @@ export default function CapturePage() {
                     <span>{allRowsSelected ? "☑" : "☐"}</span>
                     <span>{allRowsSelected ? "Deselect All" : "Select All"}</span>
                   </button>
-                  <p className="text-xs text-muted">Select at least one field to continue.</p>
                 </div>
 
                 {warnings.length ? (
@@ -1062,6 +1066,21 @@ export default function CapturePage() {
                         Add
                       </button>
                     </div>
+                    {customFields.length ? (
+                      <div className="mt-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Custom Fields
+                        </p>
+                        <div className="custom-field-list mt-2">
+                          {customFields.map((field) => (
+                            <span key={field.key} className="custom-field-chip">
+                              <span>✔</span>
+                              <span>{field.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </>
@@ -1153,7 +1172,9 @@ export default function CapturePage() {
                                 onChange={(event) =>
                                   handleRowValueChange(row.id, event.target.value)
                                 }
-                                className="input-shell w-full px-3 py-2 text-sm"
+                                className={`input-shell w-full px-3 py-2 text-sm ${
+                                  row.value === "N/A" ? "text-[#B42318]" : ""
+                                }`}
                               />
                             </td>
                             <td className="px-4 py-3 align-top">
@@ -1226,11 +1247,16 @@ function OutputPanel({
         <span className="pill">Generated output</span>
       </div>
       {value ? (
-        <textarea
-          readOnly
-          value={value}
-          className="input-shell mt-3 min-h-[290px] w-full resize-none p-3 text-sm"
-        />
+        <div className="output-shell">
+          {value.split("\n").map((line, index) => (
+            <p
+              key={`${title}-${index}`}
+              className={`output-line ${/\bN\/A\b/.test(line) ? "na" : ""}`}
+            >
+              {line || "\u00A0"}
+            </p>
+          ))}
+        </div>
       ) : (
         <EmptyState title="Nothing generated yet" description={emptyMessage} />
       )}

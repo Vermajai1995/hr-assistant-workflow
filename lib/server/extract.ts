@@ -39,7 +39,8 @@ export async function extractHrFields(input: {
   );
 
   const parsed = parseJsonResponse<ModelResponse>(raw);
-  const rows = Array.isArray(parsed.rows) ? parsed.rows : [];
+  const modelRows = Array.isArray(parsed.rows) ? parsed.rows : [];
+  const rows = ensureCustomFieldRows(modelRows, input.enabledFields, input.sanitizedText);
   const suggestedFields = Array.isArray(parsed.suggestedFields)
     ? parsed.suggestedFields.map((field): ExtractionFieldConfig => ({
         key: `suggested-${field.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -65,6 +66,58 @@ export async function extractHrFields(input: {
     sanitizedText: input.sanitizedText,
     extractionSummary: summary,
   } satisfies ExtractResponse;
+}
+
+function ensureCustomFieldRows(
+  rows: ExtractedFieldRow[],
+  enabledFields: ExtractionFieldConfig[],
+  text: string
+) {
+  const normalizedRows = rows.map((row) => {
+    const matchingField = enabledFields.find(
+      (field) => field.label.trim().toLowerCase() === row.field.trim().toLowerCase()
+    );
+
+    return matchingField
+      ? {
+          ...row,
+          field: matchingField.label,
+          category: matchingField.category,
+          key: matchingField.key,
+          kind: matchingField.kind,
+        }
+      : row;
+  });
+
+  const customRows = enabledFields
+    .filter((field) => field.kind === "custom")
+    .map((field) => {
+      const existing = normalizedRows.find(
+        (row) => row.field.trim().toLowerCase() === field.label.trim().toLowerCase()
+      );
+
+      if (existing) {
+        return {
+          ...existing,
+          key: field.key,
+          category: field.category,
+          kind: "custom" as const,
+        };
+      }
+
+      const inferred = inferCustomFieldValue(field, text);
+      return {
+        field: field.label,
+        value: inferred.value,
+        category: field.category,
+        confidence: inferred.confidence,
+        snippet: inferred.snippet,
+        key: field.key,
+        kind: "custom" as const,
+      };
+    });
+
+  return [...normalizedRows.filter((row) => row.kind !== "custom"), ...customRows];
 }
 
 function buildExtractionPrompt(enabledFields: ExtractionFieldConfig[]) {
@@ -130,4 +183,70 @@ function normalizeCategory(category?: string) {
     default:
       return "meta";
   }
+}
+
+function inferCustomFieldValue(field: ExtractionFieldConfig, text: string) {
+  const snippet = findRelevantSnippet(text, field.label);
+  const context = snippet || text;
+  const normalized = context.toLowerCase();
+
+  if (isConditionalMatch(normalized)) {
+    return { value: "Conditional", confidence: 0.8, snippet };
+  }
+
+  if (isNegativeMatch(normalized)) {
+    return { value: "No", confidence: 0.84, snippet };
+  }
+
+  if (isPositiveMatch(normalized)) {
+    return { value: "Yes", confidence: 0.84, snippet };
+  }
+
+  return { value: "N/A", confidence: 0.28, snippet: snippet || field.label };
+}
+
+function findRelevantSnippet(text: string, label: string) {
+  const sentences = text
+    .split(/\n|[.!?]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const keywords = buildLabelKeywords(label);
+
+  return (
+    sentences.find((sentence) =>
+      keywords.some((keyword) => sentence.toLowerCase().includes(keyword))
+    ) || ""
+  );
+}
+
+function buildLabelKeywords(label: string) {
+  const raw = label.toLowerCase();
+  const tokens = raw
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+
+  if (raw.includes("visa")) {
+    tokens.push("visa", "sponsor", "sponsorship");
+  }
+
+  return [...new Set(tokens)];
+}
+
+function isPositiveMatch(text: string) {
+  return /\b(yes|possible|available|supported|open to|can provide|provided|allowed)\b/.test(
+    text
+  );
+}
+
+function isNegativeMatch(text: string) {
+  return /\b(no|not available|not supported|not possible|cannot|can't|without|not eligible)\b/.test(
+    text
+  );
+}
+
+function isConditionalMatch(text: string) {
+  return /\b(conditional|only for|depends|case by case|restriction|restricted|subject to)\b/.test(
+    text
+  );
 }

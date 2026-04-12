@@ -75,6 +75,33 @@ button:disabled {
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(18px);
+  transition:
+    padding 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.site-header.compact {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.site-header-inner {
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  transition: padding 180ms ease;
+}
+
+.site-header.compact .site-header-inner {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
 }
 
 .site-footer {
@@ -85,32 +112,74 @@ button:disabled {
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 0.9rem;
+  gap: 0.8rem;
+  min-width: 0;
 }
 
 .brand-lockup strong {
   display: block;
-  font-size: 0.96rem;
+  font-size: 0.9rem;
+  transition: font-size 180ms ease, opacity 180ms ease;
 }
 
 .brand-lockup small {
   display: block;
   margin-top: 0.15rem;
   color: var(--muted);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
+  transition: opacity 180ms ease, max-height 180ms ease;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-copy-compact {
+  display: none;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.2rem;
+  height: 2.2rem;
   border-radius: 999px;
   background: linear-gradient(135deg, #0a66c2, #4c9be8);
   color: white;
   font-weight: 700;
   box-shadow: 0 8px 20px rgba(10, 102, 194, 0.18);
+  transition:
+    width 180ms ease,
+    height 180ms ease,
+    font-size 180ms ease;
+}
+
+.site-header.compact .brand-mark {
+  width: 1.85rem;
+  height: 1.85rem;
+  font-size: 0.8rem;
+}
+
+.site-header.compact .brand-copy {
+  display: none;
+}
+
+.site-header.compact .brand-copy-compact {
+  display: inline-flex;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.site-header.compact .site-nav {
+  display: none;
 }
 
 .hero-panel,
@@ -212,7 +281,18 @@ button:disabled {
     transform 160ms ease,
     background 160ms ease,
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    padding 160ms ease;
+}
+
+.site-header .primary-link,
+.site-header .ghost-link {
+  padding: 0.52rem 0.82rem;
+}
+
+.site-header.compact .primary-link,
+.site-header.compact .ghost-link {
+  padding: 0.42rem 0.72rem;
 }
 
 .primary-link {
@@ -616,11 +696,19 @@ button:disabled {
   opacity: 0.7;
 }
 
+.field-card.na {
+  border-color: rgba(180, 35, 24, 0.18);
+}
+
 .field-card-label {
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.35;
   color: var(--text);
+}
+
+.field-card-value-na {
+  color: var(--danger);
 }
 
 .review-config-grid {
@@ -644,6 +732,25 @@ button:disabled {
 
 .field-toggle-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.custom-field-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.custom-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 102, 194, 0.18);
+  background: rgba(232, 241, 251, 0.9);
+  color: var(--accent);
+  padding: 0.34rem 0.62rem;
+  font-size: 0.74rem;
+  font-weight: 600;
 }
 
 .confidence-badge {
@@ -731,6 +838,31 @@ button:disabled {
   animation: fadeIn 220ms ease;
 }
 
+.output-shell {
+  margin-top: 0.75rem;
+  min-height: 290px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  padding: 0.9rem;
+}
+
+.output-line {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.output-line + .output-line {
+  margin-top: 0.3rem;
+}
+
+.output-line.na {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 @keyframes shimmer {
   from {
     background-position: 200% 0;
@@ -791,6 +923,15 @@ button:disabled {
   }
 
   .step-nav {
+    width: 100%;
+  }
+
+  .site-header-inner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .site-nav {
     width: 100%;
   }
 

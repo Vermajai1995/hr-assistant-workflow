@@ -274,6 +274,10 @@ export function getFieldValue(rows: ExtractedFieldRow[], fieldLabel: string) {
   return rows.find((row) => row.field === fieldLabel)?.value;
 }
 
+export function getCustomRows(rows: ExtractedFieldRow[]) {
+  return rows.filter((row) => row.kind === "custom");
+}
+
 export function buildSessionTitle(rows: ExtractedFieldRow[]) {
   const role = getFieldValue(rows, "Position Title");
   const client = getFieldValue(rows, "Client Company / Agency");

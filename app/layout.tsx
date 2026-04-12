@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Link from "next/link";
 
+import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,26 +15,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <div className="site-shell">
-          <header className="site-header">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4">
-              <Link href="/" className="brand-lockup">
-                <span className="brand-mark">JP</span>
-                <span>
-                  <strong>Jai Patel</strong>
-                  <small>HireFlow · Speech → HR Requirement Extractor</small>
-                </span>
-              </Link>
-
-              <nav className="flex items-center gap-3">
-                <Link href="/" className="ghost-link">
-                  Home
-                </Link>
-                <Link href="/capture" className="primary-link">
-                  Workspace
-                </Link>
-              </nav>
-            </div>
-          </header>
+          <SiteHeader />
 
           <main className="flex-1">{children}</main>
 
