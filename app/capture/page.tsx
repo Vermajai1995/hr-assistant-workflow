@@ -742,12 +742,12 @@ export default function CapturePage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5">
+    <div className="mx-auto max-w-7xl px-4 py-4">
       <section className="workspace-shell fade-in">
         <div className="workspace-topbar">
           <div>
             <p className="eyebrow">Workspace</p>
-            <h1 className="mt-1.5 text-[1.65rem] font-semibold text-slate-900">
+            <h1 className="mt-1 text-[1.5rem] font-semibold text-slate-900">
               Hiring workflow
             </h1>
           </div>
@@ -825,7 +825,7 @@ export default function CapturePage() {
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 1</p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">Capture</h2>
+                <h2 className="mt-1 text-[1.1rem] font-semibold text-slate-900">Capture</h2>
               </div>
             </div>
 
@@ -884,7 +884,7 @@ export default function CapturePage() {
               <textarea
                 value={transcript}
                 onChange={(event) => setTranscript(event.target.value)}
-                className="input-shell mt-2 min-h-[240px] w-full resize-none p-3 text-[0.9rem] leading-6"
+                className="input-shell mt-2 min-h-[220px] w-full resize-none p-3 text-[0.88rem] leading-6"
                 placeholder="Paste the hiring conversation here..."
               />
 
@@ -919,7 +919,7 @@ export default function CapturePage() {
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 2</p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">Review Fields</h2>
+                <h2 className="mt-1 text-[1.1rem] font-semibold text-slate-900">Review Fields</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1098,7 +1098,7 @@ export default function CapturePage() {
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 3</p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">Generate Output</h2>
+                <h2 className="mt-1 text-[1.1rem] font-semibold text-slate-900">Generate Output</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">

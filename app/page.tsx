@@ -4,18 +4,18 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-14">
+    <div className="mx-auto max-w-6xl px-4 py-10">
       <section className="hero-panel min-h-[72vh] items-center justify-between">
         <div className="max-w-3xl">
           <p className="eyebrow">HireFlow</p>
-          <h1 className="mt-4 text-5xl font-semibold tracking-tight text-balance text-slate-900">
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance text-slate-900">
             Capture hiring conversations, structure the details, and generate recruiter-ready output.
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-muted">
+          <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
             HireFlow turns calls, notes, and uploaded briefs into structured hiring requirements, HR summaries, emails, job descriptions, and WhatsApp-ready updates.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/capture" className="primary-link">
               Open Workspace
             </Link>
@@ -29,11 +29,11 @@ export default function HomePage() {
             </a>
           </div>
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+          <div className="mt-7 grid gap-3 sm:grid-cols-3">
             {HIGHLIGHTS.map((item) => (
-              <article key={item.title} className="panel p-5">
+              <article key={item.title} className="panel p-4">
                 <p className="eyebrow">{item.kicker}</p>
-                <h2 className="mt-3 text-xl font-semibold text-slate-900">{item.title}</h2>
+                <h2 className="mt-2 text-lg font-semibold text-slate-900">{item.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">{item.description}</p>
               </article>
             ))}
@@ -43,7 +43,7 @@ export default function HomePage() {
         <div className="dashboard-preview">
           <div className="preview-panel">
             <p className="eyebrow">Workflow</p>
-            <div className="mt-4 space-y-4">
+            <div className="mt-3 space-y-3">
               <div className="landing-step">
                 <span className="landing-step-index">1</span>
                 <div>

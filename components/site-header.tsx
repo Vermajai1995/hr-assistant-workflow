@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -20,12 +21,17 @@ export function SiteHeader() {
     <header className={`site-header ${compact ? "compact" : ""}`}>
       <div className="site-header-inner">
         <Link href="/" className="brand-lockup">
-          <span className="brand-mark">JP</span>
+          <Image
+            src="/logo.png"
+            alt="Jai Patel logo"
+            width={40}
+            height={40}
+            className="brand-logo"
+            priority
+          />
           <span className="brand-copy">
             <strong>Jai Patel</strong>
-            <small>HireFlow · Speech → HR Requirement Extractor</small>
           </span>
-          <span className="brand-copy-compact">HireFlow</span>
         </Link>
 
         <nav className="site-nav">
