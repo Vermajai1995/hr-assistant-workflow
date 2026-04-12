@@ -6,7 +6,6 @@ import {
   buildSessionTitle,
   CORE_FIELD_LABELS,
   createCustomField,
-  getEnabledFields,
   mergeFieldConfigs,
   PREDEFINED_FIELDS,
   sortRows,
@@ -28,7 +27,7 @@ import type {
   SessionSnapshot,
 } from "@/types/hireflow";
 
-type TabId = "capture" | "review";
+type StepId = "capture" | "review" | "output";
 type OutputTabId = "fields" | "brief" | "email" | "jd" | "whatsapp";
 type ToastTone = "success" | "error" | "info";
 
@@ -68,8 +67,12 @@ declare global {
   }
 }
 
-const SAMPLE_TRANSCRIPT =
-  "Need 4 React developers for a fintech client in Pune. Budget is 18 to 24 lakh fixed, hybrid model, immediate joiners preferred, and the team wants strong TypeScript and Next.js experience.";
+const SAMPLE_TRANSCRIPT = `Recruiter: Hi, we need to hire React developers for a fintech client.
+Hiring Manager: Looking for 4 people, Pune based, hybrid working.
+Recruiter: Budget range?
+Hiring Manager: 18 to 24 LPA fixed, immediate joiners preferred.
+Recruiter: Key skills?
+Hiring Manager: Strong TypeScript, React, Next.js, and stakeholder communication.`;
 
 const STORAGE_KEY = "hireflow:sessions:v2";
 const MAX_RECENT_SESSIONS = 8;
@@ -83,15 +86,14 @@ const EMPTY_OUTPUTS: GeneratedOutputs = {
 
 export default function CapturePage() {
   const [mounted, setMounted] = useState(false);
-  const [tab, setTab] = useState<TabId>("capture");
+  const [currentStep, setCurrentStep] = useState<StepId>("capture");
   const [transcript, setTranscript] = useState(SAMPLE_TRANSCRIPT);
   const [rows, setRows] = useState<ExtractedFieldRow[]>([]);
   const [selectedFields, setSelectedFields] = useState<ExtractionFieldConfig[]>(
     PREDEFINED_FIELDS
   );
-  const [suggestedFields, setSuggestedFields] = useState<ExtractionFieldConfig[]>(
-    []
-  );
+  const [suggestedFields, setSuggestedFields] = useState<ExtractionFieldConfig[]>([]);
+  const [reviewSelection, setReviewSelection] = useState<Record<string, boolean>>({});
   const [outputs, setOutputs] = useState<GeneratedOutputs>(EMPTY_OUTPUTS);
   const [warnings, setWarnings] = useState<ExtractResponse["warnings"]>([]);
   const [status, setStatus] = useState("Ready to capture a hiring requirement.");
@@ -99,8 +101,8 @@ export default function CapturePage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
-  const [consentAccepted, setConsentAccepted] = useState(false);
-  const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
+  const [consentAccepted, setConsentAccepted] = useState(true);
+  const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("en-IN");
   const [customFieldName, setCustomFieldName] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [shareUrl, setShareUrl] = useState("");
@@ -111,14 +113,11 @@ export default function CapturePage() {
     null
   );
   const [outputTab, setOutputTab] = useState<OutputTabId>("fields");
+  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
-  const enabledFields = useMemo(
-    () => getEnabledFields(selectedFields),
-    [selectedFields]
-  );
   const completeness = useMemo(
     () => getCompleteness(rows, CORE_FIELD_LABELS),
     [rows]
@@ -133,7 +132,7 @@ export default function CapturePage() {
     if (!mounted) {
       return;
     }
-    showToast("By using this tool, you consent to processing the input data.", "info");
+    showToast("By using this tool, you consent to processing your input.", "info");
   }, [mounted]);
 
   useEffect(() => {
@@ -167,6 +166,22 @@ export default function CapturePage() {
       whatsapp: buildWhatsAppText(rows),
     });
   }, [rows, mounted]);
+
+  useEffect(() => {
+    if (!rows.length) {
+      setReviewSelection({});
+      return;
+    }
+
+    setReviewSelection((current) => {
+      const next: Record<string, boolean> = {};
+      for (const row of rows) {
+        const key = getRowKey(row);
+        next[key] = current[key] ?? true;
+      }
+      return next;
+    });
+  }, [rows]);
 
   useEffect(() => {
     if (!mounted) {
@@ -285,7 +300,7 @@ export default function CapturePage() {
     if (toastTimerRef.current) {
       window.clearTimeout(toastTimerRef.current);
     }
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 2600);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
   }
 
   async function handleExtract() {
@@ -326,7 +341,7 @@ export default function CapturePage() {
       setWarnings(data.warnings);
       setOutputs(data.outputs);
       setStatus(data.extractionSummary);
-      setTab("review");
+      setCurrentStep("review");
       setOutputTab("fields");
       showToast(`Extracted ${nextRows.length} fields`, "success");
     } catch (extractError) {
@@ -458,7 +473,7 @@ export default function CapturePage() {
     setWarnings([]);
     setOutputs(EMPTY_OUTPUTS);
     setShareUrl("");
-    setTab("capture");
+    setCurrentStep("capture");
 
     try {
       recognitionRef.current.lang = lang;
@@ -480,6 +495,14 @@ export default function CapturePage() {
     setRows((currentRows) =>
       currentRows.map((row) => (row.id === id ? { ...row, value } : row))
     );
+  }
+
+  function handleReviewSelectionToggle(row: ExtractedFieldRow) {
+    const key = getRowKey(row);
+    setReviewSelection((current) => ({
+      ...current,
+      [key]: !(current[key] ?? true),
+    }));
   }
 
   function handleFieldToggle(key: string) {
@@ -522,8 +545,9 @@ export default function CapturePage() {
     setConsentAccepted(snapshot.consentAccepted);
     setShareUrl(snapshot.shareUrl || "");
     setStatus(`Loaded session from ${formatDate(snapshot.updatedAt)}.`);
-    setTab(snapshot.rows.length ? "review" : "capture");
+    setCurrentStep(snapshot.rows.length ? "review" : "capture");
     setError(null);
+    setSessionsOpen(false);
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -572,9 +596,9 @@ export default function CapturePage() {
         setTranscript((await file.text()).trim());
       }
 
-      showToast(`Loaded ${file.name}`, "success");
-      setTab("capture");
+      setCurrentStep("capture");
       setRows([]);
+      showToast(`Loaded ${file.name}`, "success");
     } catch {
       setError(`Failed to parse ${file.name}. Try TXT, DOCX, or a cleaner PDF.`);
       showToast("File parsing failed", "error");
@@ -588,12 +612,13 @@ export default function CapturePage() {
     setSuggestedFields([]);
     setWarnings([]);
     setOutputs(EMPTY_OUTPUTS);
-    setConsentAccepted(false);
+    setConsentAccepted(true);
     setShareUrl("");
     setStatus("Started a fresh session.");
     setError(null);
-    setTab("capture");
+    setCurrentStep("capture");
     setFileName("");
+    setOutputTab("fields");
   }
 
   async function copyText(value: string, label: string) {
@@ -648,6 +673,7 @@ export default function CapturePage() {
   }
 
   const groupedFields = groupFields(selectedFields);
+  const reviewReadyCount = rows.filter((row) => reviewSelection[getRowKey(row)] ?? true).length;
 
   if (!mounted) {
     return <div className="mx-auto max-w-5xl px-4 py-20 text-sm text-muted">Loading HireFlow...</div>;
@@ -656,117 +682,166 @@ export default function CapturePage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
       <section className="workspace-shell fade-in">
-        <div className="workspace-heading">
+        <div className="workspace-topbar">
           <div>
-            <p className="eyebrow">Recruiter workspace</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-balance text-slate-900">
-              Clean hiring capture, review, and output generation in one screen.
+            <p className="eyebrow">Workspace</p>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+              Hiring workflow
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-              Capture a call, paste notes, or upload a requirement file. Review extracted fields on the right and move between recruiter-ready outputs without scrolling through a long page.
-            </p>
           </div>
 
-          <div className="workspace-steps" aria-label="workflow overview">
-            <span className={`step-pill ${tab === "capture" ? "active" : ""}`}>1. Capture</span>
-            <span className={`step-pill ${tab === "review" ? "active" : ""}`}>2. Review fields</span>
-            <span className={`step-pill ${rows.length ? "active" : ""}`}>3. Generate outputs</span>
+          <div className="session-menu">
+            <button
+              onClick={() => setSessionsOpen((current) => !current)}
+              className="ghost-link"
+              type="button"
+            >
+              Sessions
+            </button>
+
+            {sessionsOpen ? (
+              <div className="session-popover fade-in">
+                <div className="session-popover-header">
+                  <strong>Recent sessions</strong>
+                  <span className="text-xs text-muted">{recentSessions.length} saved</span>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {recentSessions.length ? (
+                    recentSessions.map((session) => (
+                      <button
+                        key={session.id}
+                        onClick={() => handleRestoreSession(session)}
+                        className="session-card"
+                      >
+                        <span className="session-title">{session.title}</span>
+                        <span className="session-meta">
+                          {formatDate(session.updatedAt)} · {session.rows.length} fields
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted">
+                      Recent sessions will appear here after your first extraction.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="workspace-grid xl:h-[calc(100vh-12rem)]">
-          <main className="workspace-sidebar">
-            <section className="panel p-5 fade-in">
-              <div className="section-header">
-                <div>
-                  <p className="eyebrow">Capture</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                    Input sources
-                  </h2>
-                </div>
-                <select
-                  value={lang}
-                  onChange={(event) =>
-                    setLang(event.target.value as "hi-IN" | "en-IN" | "en-US")
+        <div className="step-nav" aria-label="workflow steps">
+          {STEPS.map((step, index) => {
+            const completed = isStepCompleted(step.id, rows);
+            const active = currentStep === step.id;
+
+            return (
+              <button
+                key={step.id}
+                type="button"
+                className={`step-link ${active ? "active" : ""} ${completed ? "complete" : ""}`}
+                onClick={() => {
+                  if (step.id === "capture" || completed || (step.id === "review" && rows.length)) {
+                    setCurrentStep(step.id);
                   }
-                  className="input-shell min-w-[140px] px-3 py-2 text-sm"
-                >
-                  <option value="hi-IN">Hinglish</option>
-                  <option value="en-IN">English (IN)</option>
-                  <option value="en-US">English (US)</option>
-                </select>
+                }}
+              >
+                <span className="step-index">{completed ? "✓" : index + 1}</span>
+                <span>{step.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {error ? (
+          <div className="error-card">
+            <strong>Something needs attention.</strong>
+            <p className="mt-1 text-sm">{error}</p>
+          </div>
+        ) : null}
+
+        {currentStep === "capture" ? (
+          <section className="panel p-6 fade-in workspace-panel">
+            <div className="section-header">
+              <div>
+                <p className="eyebrow">Step 1</p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Capture</h2>
               </div>
+            </div>
 
-              <div className="mt-4 rounded-3xl bg-white p-4 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.05)]">
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={consentAccepted}
-                      onChange={(event) => setConsentAccepted(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-[#0A66C2]"
-                    />
-                    <span>I have consent to process this conversation</span>
-                  </label>
-                </div>
+            <div className="capture-toolbar">
+              <select
+                value={lang}
+                onChange={(event) =>
+                  setLang(event.target.value as "hi-IN" | "en-IN" | "en-US")
+                }
+                className="input-shell min-w-[160px] px-3 py-2 text-sm"
+              >
+                <option value="en-IN">English</option>
+                <option value="hi-IN">Hinglish</option>
+                <option value="en-US">English (US)</option>
+              </select>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    onClick={handleStartListening}
-                    disabled={!isSupported || isListening || isExtracting}
-                    className="primary-link"
-                  >
-                    {isListening ? "Listening..." : "Start"}
-                  </button>
-                  <button
-                    onClick={handleStopListening}
-                    disabled={!isListening}
-                    className="ghost-link"
-                  >
-                    Stop
-                  </button>
-                  <button onClick={handleReset} className="ghost-link">
-                    Clear
-                  </button>
-                </div>
-
-                <div className="mt-4 status-row">
-                  <span
-                    className={
-                      isListening
-                        ? "status-dot live"
-                        : isExtracting
-                          ? "status-dot busy"
-                          : "status-dot idle"
-                    }
-                  />
-                  <span>{status}</span>
-                </div>
-              </div>
-
-              {error ? (
-                <div className="error-card mt-4">
-                  <strong>Something needs attention.</strong>
-                  <p className="mt-1 text-sm">{error}</p>
-                </div>
-              ) : null}
-
-              <div className="mt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium text-slate-700">
-                    Transcript or notes
-                  </label>
-                  <span className="text-xs text-muted">{transcript.length} characters</span>
-                </div>
-
-                <textarea
-                  value={transcript}
-                  onChange={(event) => setTranscript(event.target.value)}
-                  className="input-shell mt-3 min-h-[220px] w-full resize-none p-4 text-sm"
-                  placeholder="Paste a recruiter call, upload a requirement doc, or capture voice input..."
+              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={consentAccepted}
+                  onChange={(event) => setConsentAccepted(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-[#0A66C2]"
                 />
+                <span>I have consent to process this conversation</span>
+              </label>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleStartListening}
+                disabled={!isSupported || isListening || isExtracting}
+                className="primary-link"
+              >
+                {isListening ? "Listening..." : "Start"}
+              </button>
+
+              <button
+                onClick={handleStopListening}
+                disabled={!isListening}
+                className="ghost-link"
+              >
+                Stop
+              </button>
+
+              <button onClick={handleReset} className="ghost-link">
+                Clear
+              </button>
+            </div>
+
+            <div className="mt-4 status-row">
+              <span
+                className={
+                  isListening
+                    ? "status-dot live"
+                    : isExtracting
+                      ? "status-dot busy"
+                      : "status-dot idle"
+                }
+              />
+              <span>{status}</span>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-medium text-slate-700">Conversation input</label>
+                <span className="text-xs text-muted">{transcript.length} characters</span>
+              </div>
+
+              <textarea
+                value={transcript}
+                onChange={(event) => setTranscript(event.target.value)}
+                className="input-shell mt-3 min-h-[380px] w-full resize-none p-5 text-base leading-8"
+                placeholder="Paste the hiring conversation here..."
+              />
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <label className="ghost-link cursor-pointer">
                     Upload file
                     <input
@@ -776,168 +851,220 @@ export default function CapturePage() {
                       onChange={handleFileChange}
                     />
                   </label>
-                  <button
-                    onClick={handleExtract}
-                    disabled={isExtracting}
-                    className="primary-link"
-                  >
-                    {isExtracting ? "Extracting..." : "Generate outputs"}
-                  </button>
+                  {fileName ? <span className="pill">{fileName}</span> : null}
                 </div>
 
-                {fileName ? <p className="mt-2 text-xs text-muted">Loaded: {fileName}</p> : null}
-                <p className="mt-3 text-xs text-muted">
-                  Sensitive identifiers are redacted before AI processing.
-                </p>
+                <button
+                  onClick={handleExtract}
+                  disabled={isExtracting}
+                  className="primary-link"
+                >
+                  {isExtracting ? "Processing..." : "Next"}
+                </button>
               </div>
-            </section>
+            </div>
+          </section>
+        ) : null}
 
-            <section className="panel p-5 fade-in">
-              <div className="section-header">
-                <div>
-                  <p className="eyebrow">Capture</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                    Extraction fields
-                  </h2>
-                </div>
-              </div>
-
-              <p className="text-sm text-muted">
-                Keep the field set focused, then add custom attributes only where needed.
-              </p>
-
-              <div className="mt-4 space-y-4">
-                {Object.entries(groupedFields).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      {category}
-                    </p>
-                    <div className="mt-2 grid gap-2">
-                      {items.map((field) => (
-                        <label key={field.key} className="field-toggle">
-                          <input
-                            type="checkbox"
-                            checked={field.enabled}
-                            onChange={() => handleFieldToggle(field.key)}
-                          />
-                          <span>
-                            <strong>{field.label}</strong>
-                            <small>{field.description}</small>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-5 border-t border-slate-200 pt-4">
-                <label className="text-sm font-medium text-slate-700">
-                  Add custom field
-                </label>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={customFieldName}
-                    onChange={(event) => setCustomFieldName(event.target.value)}
-                    placeholder="Visa Sponsorship"
-                    className="input-shell w-full px-3 py-2 text-sm"
-                  />
-                  <button onClick={handleAddCustomField} className="ghost-link">
-                    Add
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="panel p-5 fade-in">
-              <div className="section-header">
-                <div>
-                  <p className="eyebrow">Sessions</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                    Recent work
-                  </h2>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {recentSessions.length ? (
-                  recentSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      onClick={() => handleRestoreSession(session)}
-                      className="session-card"
-                    >
-                      <span className="session-title">{session.title}</span>
-                      <span className="session-meta">
-                        {session.rows.length} fields · {formatDate(session.updatedAt)}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <EmptyState
-                    title="No recent sessions yet"
-                    description="Your previous extractions will appear here for quick resume."
-                  />
-                )}
-              </div>
-            </section>
-          </main>
-
-          <aside className="workspace-content panel p-5 fade-in">
+        {currentStep === "review" ? (
+          <section className="panel p-6 fade-in workspace-panel">
             <div className="section-header">
               <div>
-                <p className="eyebrow">Generated outputs</p>
-                <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                  Extracted Fields
-                </h2>
+                <p className="eyebrow">Step 2</p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Review Fields</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {OUTPUT_TABS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setOutputTab(item.id)}
-                    className={outputTab === item.id ? "tab-active" : "tab-idle"}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+                <button onClick={() => setCurrentStep("capture")} className="ghost-link">
+                  Back
+                </button>
+                <button
+                  onClick={() => setCurrentStep("output")}
+                  className="primary-link"
+                  disabled={!rows.length}
+                >
+                  Generate Output
+                </button>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-[#F8FAFB] p-4">
+            {rows.length ? (
+              <>
+                <div className="mt-5 review-meta">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Review status</p>
+                    <p className="mt-1 text-xs text-muted">
+                      {reviewReadyCount} fields marked for review · {completeness.present}/{completeness.total} core fields filled
+                    </p>
+                  </div>
+                  <div className="progress-track review-progress">
+                    <div className="progress-bar" style={{ width: `${completeness.percent}%` }} />
+                  </div>
+                </div>
+
+                {warnings.length ? (
+                  <div className="warning-stack mt-4">
+                    {warnings.map((warning, index) => (
+                      <div key={`${warning.type}-${index}`} className="warning-card">
+                        <strong>{warning.label}</strong>
+                        <p>{warning.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {suggestedFields.length ? (
+                  <div className="soft-panel mt-4 p-4">
+                    <p className="text-sm font-semibold text-slate-900">Suggested fields</p>
+                    <p className="mt-1 text-xs text-muted">
+                      The AI found extra attributes you may want to track next time.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {suggestedFields.map((field) => (
+                        <button
+                          key={field.key}
+                          onClick={() => handleAcceptSuggestedField(field)}
+                          className="pill-action"
+                        >
+                          + {field.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="review-grid mt-5">
+                  {rows.map((row) => {
+                    const checked = reviewSelection[getRowKey(row)] ?? true;
+
+                    return (
+                      <article
+                        key={getRowKey(row)}
+                        className={`field-card ${checked ? "selected" : "muted"}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="field-card-label">{row.field}</p>
+                            <span className="pill mt-3 inline-flex">{row.category}</span>
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-xs text-muted">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => handleReviewSelectionToggle(row)}
+                            />
+                            <span>Selected</span>
+                          </label>
+                        </div>
+
+                        <input
+                          value={row.value}
+                          onChange={(event) => handleRowValueChange(row.id, event.target.value)}
+                          className="input-shell mt-4 w-full px-3 py-2 text-sm"
+                        />
+
+                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted">
+                          <span>{row.snippet || "No snippet captured"}</span>
+                          <span>{row.confidence.toFixed(2)}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="review-config-grid mt-5">
+                  <div className="soft-panel p-4">
+                    <p className="text-sm font-semibold text-slate-900">Extraction fields</p>
+                    <div className="mt-4 space-y-4">
+                      {Object.entries(groupedFields).map(([category, items]) => (
+                        <div key={category}>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            {category}
+                          </p>
+                          <div className="mt-2 grid gap-2">
+                            {items.map((field) => (
+                              <label key={field.key} className="field-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={field.enabled}
+                                  onChange={() => handleFieldToggle(field.key)}
+                                />
+                                <span>
+                                  <strong>{field.label}</strong>
+                                  <small>{field.description}</small>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="soft-panel p-4">
+                    <p className="text-sm font-semibold text-slate-900">Custom field</p>
+                    <p className="mt-1 text-xs text-muted">
+                      Add new extraction labels without changing the underlying workflow.
+                    </p>
+                    <div className="mt-4 flex gap-2">
+                      <input
+                        value={customFieldName}
+                        onChange={(event) => setCustomFieldName(event.target.value)}
+                        placeholder="Visa Sponsorship"
+                        className="input-shell w-full px-3 py-2 text-sm"
+                      />
+                      <button onClick={handleAddCustomField} className="ghost-link">
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <EmptyState
+                title="Start capturing to proceed"
+                description="Run extraction from Step 1 to review your structured fields."
+              />
+            )}
+          </section>
+        ) : null}
+
+        {currentStep === "output" ? (
+          <section className="panel p-6 fade-in workspace-panel">
+            <div className="section-header">
               <div>
-                <p className="text-sm font-semibold text-slate-900">Review status</p>
-                <p className="mt-1 text-xs text-muted">
-                  {completeness.present}/{completeness.total} core fields are filled.
-                </p>
+                <p className="eyebrow">Step 3</p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Generate Output</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => setTab("capture")} className={tab === "capture" ? "tab-active" : "tab-idle"}>
-                  Capture
-                </button>
-                <button onClick={() => setTab("review")} className={tab === "review" ? "tab-active" : "tab-idle"}>
-                  Review
+                <button onClick={() => setCurrentStep("review")} className="ghost-link">
+                  Back
                 </button>
                 <button onClick={handleTransliterate} className="ghost-link" disabled={!rows.length}>
                   Convert to English
                 </button>
-                <button onClick={handleShare} className="primary-link" disabled={isSharing || !rows.length}>
+                <button
+                  onClick={handleShare}
+                  className="primary-link"
+                  disabled={isSharing || !rows.length}
+                >
                   {isSharing ? "Sharing..." : "Create share link"}
                 </button>
               </div>
             </div>
 
-            <div className="mt-4 progress-track">
-              <div className="progress-bar" style={{ width: `${completeness.percent}%` }} />
+            <div className="mt-5 flex flex-wrap gap-2">
+              {OUTPUT_TABS.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setOutputTab(item.id)}
+                  className={outputTab === item.id ? "tab-active" : "tab-idle"}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-
-            {completeness.missing.length ? (
-              <p className="mt-2 text-xs text-[#9A6700]">
-                Missing: {completeness.missing.join(", ")}
-              </p>
-            ) : null}
 
             {shareUrl ? (
               <div className="notice-card mt-4">
@@ -947,39 +1074,6 @@ export default function CapturePage() {
                   <button onClick={() => copyText(shareUrl, "Share link")} className="ghost-link">
                     Copy
                   </button>
-                </div>
-              </div>
-            ) : null}
-
-            {warnings.length ? (
-              <div className="warning-stack mt-4">
-                {warnings.map((warning, index) => (
-                  <div key={`${warning.type}-${index}`} className="warning-card">
-                    <strong>{warning.label}</strong>
-                    <p>{warning.message}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {suggestedFields.length ? (
-              <div className="soft-panel mt-4 p-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">Suggested fields</p>
-                  <p className="mt-1 text-xs text-muted">
-                    The AI found extra attributes you may want to track next time.
-                  </p>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {suggestedFields.map((field) => (
-                    <button
-                      key={field.key}
-                      onClick={() => handleAcceptSuggestedField(field)}
-                      className="pill-action"
-                    >
-                      + {field.label}
-                    </button>
-                  ))}
                 </div>
               </div>
             ) : null}
@@ -1030,8 +1124,8 @@ export default function CapturePage() {
                   </div>
                 ) : (
                   <EmptyState
-                    title="Start recording to see extracted data"
-                    description="Fields will appear here after you capture or paste a hiring conversation and run extraction."
+                    title="Start capturing to proceed"
+                    description="Run extraction first, then your structured fields will appear here."
                   />
                 )
               ) : (
@@ -1044,7 +1138,9 @@ export default function CapturePage() {
                       Export CSV
                     </button>
                     <button
-                      onClick={() => copyText(getOutputByTab(outputTab, outputs), getOutputLabel(outputTab))}
+                      onClick={() =>
+                        copyText(getOutputByTab(outputTab, outputs), getOutputLabel(outputTab))
+                      }
                       className="primary-link"
                       disabled={!getOutputByTab(outputTab, outputs)}
                     >
@@ -1060,13 +1156,11 @@ export default function CapturePage() {
                 </div>
               )}
             </div>
-          </aside>
-        </div>
+          </section>
+        ) : null}
       </section>
 
-      {toast ? (
-        <div className={`toast ${toast.tone}`}>{toast.message}</div>
-      ) : null}
+      {toast ? <div className={`toast ${toast.tone}`}>{toast.message}</div> : null}
     </div>
   );
 }
@@ -1151,10 +1245,7 @@ function buildSnapshot({
 
   return {
     id: sessionId || createSessionId(),
-    title:
-      buildSessionTitle(rows) ||
-      transcript.slice(0, 48) ||
-      "Untitled session",
+    title: buildSessionTitle(rows) || transcript.slice(0, 48) || "Untitled session",
     transcript,
     rows,
     selectedFields,
@@ -1171,7 +1262,8 @@ function buildSnapshot({
 
 function groupFields(fields: ExtractionFieldConfig[]) {
   return fields.reduce<Record<string, ExtractionFieldConfig[]>>((groups, field) => {
-    const key = field.kind === "custom" ? "Custom" : field.kind === "suggested" ? "Suggested" : "Core";
+    const key =
+      field.kind === "custom" ? "Custom" : field.kind === "suggested" ? "Suggested" : "Core";
     groups[key] = groups[key] || [];
     groups[key].push(field);
     return groups;
@@ -1223,13 +1315,9 @@ function getOutputLabel(tab: OutputTabId) {
   }
 }
 
-const OUTPUT_TABS: Array<{ id: OutputTabId; label: string }> = [
-  { id: "fields", label: "Fields" },
-  { id: "brief", label: "HR Brief" },
-  { id: "email", label: "Email" },
-  { id: "jd", label: "JD" },
-  { id: "whatsapp", label: "WhatsApp" },
-];
+function getRowKey(row: ExtractedFieldRow) {
+  return row.id || `${row.field}-${row.category}`;
+}
 
 function createSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -1248,3 +1336,27 @@ function formatDate(value: string) {
     return value;
   }
 }
+
+function isStepCompleted(step: StepId, rows: ExtractedFieldRow[]) {
+  if (step === "capture") {
+    return rows.length > 0;
+  }
+  if (step === "review") {
+    return rows.length > 0;
+  }
+  return false;
+}
+
+const OUTPUT_TABS: Array<{ id: OutputTabId; label: string }> = [
+  { id: "fields", label: "Fields" },
+  { id: "brief", label: "HR Brief" },
+  { id: "email", label: "Email" },
+  { id: "jd", label: "JD" },
+  { id: "whatsapp", label: "WhatsApp" },
+];
+
+const STEPS: Array<{ id: StepId; label: string }> = [
+  { id: "capture", label: "Capture" },
+  { id: "review", label: "Review Fields" },
+  { id: "output", label: "Generate Output" },
+];

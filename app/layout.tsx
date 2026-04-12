@@ -18,10 +18,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <header className="site-header">
             <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4">
               <Link href="/" className="brand-lockup">
-                <span className="brand-mark">HF</span>
+                <span className="brand-mark">JP</span>
                 <span>
-                  <strong>HireFlow</strong>
-                  <small>Speech → HR Requirement Extractor</small>
+                  <strong>Jai Patel</strong>
+                  <small>HireFlow · Speech → HR Requirement Extractor</small>
                 </span>
               </Link>
 

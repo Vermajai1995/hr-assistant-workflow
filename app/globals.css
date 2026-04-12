@@ -145,6 +145,7 @@ button:disabled {
   display: grid;
   gap: 1rem;
   align-content: start;
+  max-width: 420px;
 }
 
 .preview-card,
@@ -159,6 +160,25 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.landing-step {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.landing-step-index {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .eyebrow {
@@ -427,33 +447,53 @@ button:disabled {
   gap: 1.5rem;
 }
 
-.workspace-heading {
+.workspace-topbar {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
-.workspace-steps {
+.step-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
 
-.step-pill {
+.step-link {
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0.55rem 0.9rem;
+  padding: 0.7rem 1rem;
   background: white;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
 }
 
-.step-pill.active {
+.step-link.active {
   border-color: rgba(10, 102, 194, 0.16);
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.step-link.complete .step-index {
+  background: #0a66c2;
+  color: white;
+}
+
+.step-index {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #eef3f8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .workspace-grid {
@@ -462,15 +502,14 @@ button:disabled {
   align-items: start;
 }
 
-.workspace-sidebar {
-  display: grid;
-  gap: 1rem;
-}
-
 .workspace-content {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.workspace-panel {
+  min-height: calc(100vh - 14rem);
 }
 
 .section-header {
@@ -492,6 +531,94 @@ button:disabled {
   background: linear-gradient(180deg, #fbfdff 0%, #f4f7fa 100%);
   text-align: center;
   padding: 2rem;
+}
+
+.capture-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.review-meta {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.review-progress {
+  width: 100%;
+}
+
+.review-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.field-card {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 1rem;
+  background: white;
+  min-height: 180px;
+  transition:
+    opacity 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.field-card.selected {
+  border-color: rgba(10, 102, 194, 0.16);
+}
+
+.field-card.muted {
+  opacity: 0.7;
+}
+
+.field-card-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.review-config-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+}
+
+.session-menu {
+  position: relative;
+}
+
+.session-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.6rem);
+  width: 340px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: white;
+  box-shadow: var(--shadow);
+  padding: 1rem;
+  z-index: 20;
+}
+
+.session-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .empty-state-icon {
@@ -542,20 +669,22 @@ button:disabled {
 }
 
 @media (min-width: 1280px) {
-  .workspace-grid {
-    grid-template-columns: 420px minmax(0, 1fr);
-  }
-
-  .workspace-sidebar {
-    max-height: 100%;
-    overflow: auto;
-    padding-right: 0.25rem;
+  .workspace-panel {
+    overflow: hidden;
   }
 }
 
 @media (max-width: 1100px) {
   .hero-panel {
     flex-direction: column;
+  }
+
+  .review-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .review-config-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -578,7 +707,21 @@ button:disabled {
     width: 100%;
   }
 
-  .workspace-steps {
+  .step-nav {
     width: 100%;
+  }
+
+  .review-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-popover {
+    width: min(92vw, 340px);
+  }
+}
+
+@media (max-width: 560px) {
+  .review-grid {
+    grid-template-columns: 1fr;
   }
 }
