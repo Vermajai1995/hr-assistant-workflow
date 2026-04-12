@@ -11,7 +11,6 @@ import {
   PREDEFINED_FIELDS,
   sortRows,
 } from "@/lib/hireflow/fields";
-import { getPrivacyDisclaimer } from "@/lib/hireflow/privacy";
 import {
   buildEmailDraft,
   buildHrBrief,
@@ -30,6 +29,7 @@ import type {
 } from "@/types/hireflow";
 
 type TabId = "capture" | "review";
+type OutputTabId = "fields" | "brief" | "email" | "jd" | "whatsapp";
 type ToastTone = "success" | "error" | "info";
 
 type SpeechRecognitionEvent = Event & {
@@ -110,6 +110,7 @@ export default function CapturePage() {
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(
     null
   );
+  const [outputTab, setOutputTab] = useState<OutputTabId>("fields");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -127,6 +128,13 @@ export default function CapturePage() {
     setMounted(true);
     setSessionId(createSessionId());
   }, []);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    showToast("By using this tool, you consent to processing the input data.", "info");
+  }, [mounted]);
 
   useEffect(() => {
     if (!mounted) {
@@ -319,6 +327,7 @@ export default function CapturePage() {
       setOutputs(data.outputs);
       setStatus(data.extractionSummary);
       setTab("review");
+      setOutputTab("fields");
       showToast(`Extracted ${nextRows.length} fields`, "success");
     } catch (extractError) {
       setError(
@@ -645,337 +654,355 @@ export default function CapturePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <section className="hero-panel">
-        <div className="max-w-3xl">
-          <p className="eyebrow">Production-ready hiring intake</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance">
-            Capture voice, documents, and transcripts into a clean HR-ready workspace.
-          </h1>
-          <p className="mt-4 max-w-2xl text-base text-muted">
-            HireFlow turns unstructured hiring conversations into reusable recruiter outputs, with consent, privacy checks, recent sessions, and read-only sharing built in.
-          </p>
+    <div className="mx-auto max-w-7xl px-4 py-6">
+      <section className="workspace-shell fade-in">
+        <div className="workspace-heading">
+          <div>
+            <p className="eyebrow">Recruiter workspace</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-balance text-slate-900">
+              Clean hiring capture, review, and output generation in one screen.
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
+              Capture a call, paste notes, or upload a requirement file. Review extracted fields on the right and move between recruiter-ready outputs without scrolling through a long page.
+            </p>
+          </div>
+
+          <div className="workspace-steps" aria-label="workflow overview">
+            <span className={`step-pill ${tab === "capture" ? "active" : ""}`}>1. Capture</span>
+            <span className={`step-pill ${tab === "review" ? "active" : ""}`}>2. Review fields</span>
+            <span className={`step-pill ${rows.length ? "active" : ""}`}>3. Generate outputs</span>
+          </div>
         </div>
 
-        <div className="hero-actions">
-          <button
-            onClick={handleStartListening}
-            disabled={!isSupported || isListening || isExtracting}
-            className="primary-link"
-          >
-            {isListening ? "Listening..." : "Start voice capture"}
-          </button>
-          <button
-            onClick={handleExtract}
-            disabled={isExtracting}
-            className="ghost-link"
-          >
-            {isExtracting ? "Extracting..." : "Run extraction"}
-          </button>
-        </div>
-      </section>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-        <main className="space-y-6">
-          <section className="panel p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <div>
-                <p className="eyebrow">Session controls</p>
-                <h2 className="mt-2 text-2xl font-semibold">Capture requirement</h2>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
+        <div className="workspace-grid xl:h-[calc(100vh-12rem)]">
+          <main className="workspace-sidebar">
+            <section className="panel p-5 fade-in">
+              <div className="section-header">
+                <div>
+                  <p className="eyebrow">Capture</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                    Input sources
+                  </h2>
+                </div>
                 <select
                   value={lang}
                   onChange={(event) =>
                     setLang(event.target.value as "hi-IN" | "en-IN" | "en-US")
                   }
-                  className="input-shell min-w-[140px]"
+                  className="input-shell min-w-[140px] px-3 py-2 text-sm"
                 >
                   <option value="hi-IN">Hinglish</option>
                   <option value="en-IN">English (IN)</option>
                   <option value="en-US">English (US)</option>
                 </select>
-                <button
-                  onClick={handleStopListening}
-                  disabled={!isListening}
-                  className="ghost-link"
-                >
-                  Stop
-                </button>
-                <button onClick={handleReset} className="ghost-link">
-                  New session
-                </button>
               </div>
-            </div>
 
-            <div className="mt-5 grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
-              <div className="space-y-4">
-                <div className="notice-card">
-                  <label className="flex items-start gap-3">
+              <div className="mt-4 rounded-3xl bg-white p-4 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.05)]">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
                       checked={consentAccepted}
                       onChange={(event) => setConsentAccepted(event.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-white/20 bg-transparent"
+                      className="h-4 w-4 rounded border-slate-300 text-[#0A66C2]"
                     />
-                    <span>
-                      <strong className="text-slate-100">
-                        Consent required before recording or processing.
-                      </strong>
-                      <span className="mt-1 block text-sm text-muted">
-                        Confirm that the speaker knows this conversation is being processed for hiring operations.
-                      </span>
-                    </span>
+                    <span>I have consent to process this conversation</span>
                   </label>
                 </div>
 
-                <div className="privacy-card">
-                  <p className="text-sm font-medium text-slate-100">Privacy guardrail</p>
-                  <p className="mt-2 text-sm text-muted">{getPrivacyDisclaimer()}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={handleStartListening}
+                    disabled={!isSupported || isListening || isExtracting}
+                    className="primary-link"
+                  >
+                    {isListening ? "Listening..." : "Start"}
+                  </button>
+                  <button
+                    onClick={handleStopListening}
+                    disabled={!isListening}
+                    className="ghost-link"
+                  >
+                    Stop
+                  </button>
+                  <button onClick={handleReset} className="ghost-link">
+                    Clear
+                  </button>
                 </div>
 
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <label className="text-sm font-medium text-slate-200">
-                      Transcript or notes
-                    </label>
-                    <span className="text-xs text-muted">
-                      {transcript.length} characters
-                    </span>
-                  </div>
-
-                  <textarea
-                    value={transcript}
-                    onChange={(event) => setTranscript(event.target.value)}
-                    className="input-shell mt-3 min-h-[240px] w-full resize-y p-4 text-sm"
-                    placeholder="Paste a recruiter call, upload a requirement doc, or capture voice input..."
+                <div className="mt-4 status-row">
+                  <span
+                    className={
+                      isListening
+                        ? "status-dot live"
+                        : isExtracting
+                          ? "status-dot busy"
+                          : "status-dot idle"
+                    }
                   />
-
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <label className="ghost-link cursor-pointer">
-                      Upload PDF / DOCX / TXT
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.txt"
-                        className="hidden"
-                        onChange={handleFileChange}
-                      />
-                    </label>
-                    {fileName ? <span className="pill">{fileName}</span> : null}
-                    <button
-                      onClick={handleExtract}
-                      disabled={isExtracting}
-                      className="primary-link"
-                    >
-                      {isExtracting ? "Extracting..." : "Sync & extract fields"}
-                    </button>
-                  </div>
+                  <span>{status}</span>
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="soft-panel p-4">
-                  <p className="text-sm font-semibold text-slate-100">Enabled extraction fields</p>
-                  <p className="mt-1 text-xs text-muted">
-                    Keep the default set lean, then add only the fields you want extracted and included in outputs.
-                  </p>
-
-                  <div className="mt-4 space-y-4">
-                    {Object.entries(groupedFields).map(([category, items]) => (
-                      <div key={category}>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                          {category}
-                        </p>
-                        <div className="mt-2 grid gap-2">
-                          {items.map((field) => (
-                            <label key={field.key} className="field-toggle">
-                              <input
-                                type="checkbox"
-                                checked={field.enabled}
-                                onChange={() => handleFieldToggle(field.key)}
-                              />
-                              <span>
-                                <strong>{field.label}</strong>
-                                <small>{field.description}</small>
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 border-t border-white/10 pt-4">
-                    <label className="text-sm font-medium text-slate-200">
-                      Add custom field
-                    </label>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        value={customFieldName}
-                        onChange={(event) => setCustomFieldName(event.target.value)}
-                        placeholder="Visa Sponsorship"
-                        className="input-shell w-full px-3 py-2 text-sm"
-                      />
-                      <button onClick={handleAddCustomField} className="ghost-link">
-                        Add
-                      </button>
-                    </div>
-                  </div>
+              {error ? (
+                <div className="error-card mt-4">
+                  <strong>Something needs attention.</strong>
+                  <p className="mt-1 text-sm">{error}</p>
                 </div>
-              </div>
-            </div>
-          </section>
+              ) : null}
 
-          <section className="panel p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="eyebrow">Review workspace</p>
-                <h2 className="mt-2 text-2xl font-semibold">Extraction review</h2>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setTab("capture")}
-                  className={tab === "capture" ? "tab-active" : "tab-idle"}
-                >
-                  Capture
-                </button>
-                <button
-                  onClick={() => setTab("review")}
-                  className={tab === "review" ? "tab-active" : "tab-idle"}
-                >
-                  Review
-                </button>
-              </div>
-            </div>
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium text-slate-700">
+                    Transcript or notes
+                  </label>
+                  <span className="text-xs text-muted">{transcript.length} characters</span>
+                </div>
 
-            {error ? (
-              <div className="error-card mt-5">
-                <strong>Something needs attention.</strong>
-                <p className="mt-1 text-sm">{error}</p>
-              </div>
-            ) : null}
+                <textarea
+                  value={transcript}
+                  onChange={(event) => setTranscript(event.target.value)}
+                  className="input-shell mt-3 min-h-[220px] w-full resize-none p-4 text-sm"
+                  placeholder="Paste a recruiter call, upload a requirement doc, or capture voice input..."
+                />
 
-            <div className="mt-5 status-row">
-              <span className={isListening ? "status-dot live" : isExtracting ? "status-dot busy" : "status-dot idle"} />
-              <span>{status}</span>
-            </div>
-
-            {tab === "review" ? (
-              <div className="mt-6 space-y-5">
-                <div className="soft-panel p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-100">
-                        Completeness
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {completeness.present}/{completeness.total} core fields are filled.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={handleTransliterate} className="ghost-link">
-                        Convert to English
-                      </button>
-                      <button onClick={copyMarkdownTable} className="ghost-link">
-                        Copy MD
-                      </button>
-                      <button onClick={exportCsv} className="ghost-link">
-                        Export CSV
-                      </button>
-                      <button onClick={handleShare} className="primary-link" disabled={isSharing}>
-                        {isSharing ? "Sharing..." : "Create share link"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 progress-track">
-                    <div
-                      className="progress-bar"
-                      style={{ width: `${completeness.percent}%` }}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label className="ghost-link cursor-pointer">
+                    Upload file
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,.txt"
+                      className="hidden"
+                      onChange={handleFileChange}
                     />
-                  </div>
-
-                  {completeness.missing.length ? (
-                    <p className="mt-2 text-xs text-amber-200">
-                      Missing: {completeness.missing.join(", ")}
-                    </p>
-                  ) : null}
-
-                  {shareUrl ? (
-                    <div className="notice-card mt-4">
-                      <p className="text-sm font-medium text-slate-100">
-                        Read-only share link
-                      </p>
-                      <div className="mt-2 flex flex-col gap-2 md:flex-row">
-                        <input
-                          readOnly
-                          value={shareUrl}
-                          className="input-shell w-full px-3 py-2 text-sm"
-                        />
-                        <button
-                          onClick={() => copyText(shareUrl, "Share link")}
-                          className="ghost-link"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
+                  </label>
+                  <button
+                    onClick={handleExtract}
+                    disabled={isExtracting}
+                    className="primary-link"
+                  >
+                    {isExtracting ? "Extracting..." : "Generate outputs"}
+                  </button>
                 </div>
 
-                {warnings.length ? (
-                  <div className="warning-stack">
-                    {warnings.map((warning, index) => (
-                      <div key={`${warning.type}-${index}`} className="warning-card">
-                        <strong>{warning.label}</strong>
-                        <p>{warning.message}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                {fileName ? <p className="mt-2 text-xs text-muted">Loaded: {fileName}</p> : null}
+                <p className="mt-3 text-xs text-muted">
+                  Sensitive identifiers are redacted before AI processing.
+                </p>
+              </div>
+            </section>
 
-                {suggestedFields.length ? (
-                  <div className="soft-panel p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-100">
-                          Suggested fields
-                        </p>
-                        <p className="mt-1 text-xs text-muted">
-                          The AI found extra attributes you may want to track on the next run.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {suggestedFields.map((field) => (
-                        <button
-                          key={field.key}
-                          onClick={() => handleAcceptSuggestedField(field)}
-                          className="pill-action"
-                        >
-                          + {field.label}
-                        </button>
+            <section className="panel p-5 fade-in">
+              <div className="section-header">
+                <div>
+                  <p className="eyebrow">Capture</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                    Extraction fields
+                  </h2>
+                </div>
+              </div>
+
+              <p className="text-sm text-muted">
+                Keep the field set focused, then add custom attributes only where needed.
+              </p>
+
+              <div className="mt-4 space-y-4">
+                {Object.entries(groupedFields).map(([category, items]) => (
+                  <div key={category}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      {category}
+                    </p>
+                    <div className="mt-2 grid gap-2">
+                      {items.map((field) => (
+                        <label key={field.key} className="field-toggle">
+                          <input
+                            type="checkbox"
+                            checked={field.enabled}
+                            onChange={() => handleFieldToggle(field.key)}
+                          />
+                          <span>
+                            <strong>{field.label}</strong>
+                            <small>{field.description}</small>
+                          </span>
+                        </label>
                       ))}
                     </div>
                   </div>
-                ) : null}
+                ))}
+              </div>
 
-                <div className="table-shell overflow-hidden">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr>
-                        <th className="px-4 py-3">Field</th>
-                        <th className="px-4 py-3">Value</th>
-                        <th className="px-4 py-3">Category</th>
-                        <th className="px-4 py-3">Confidence</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length ? (
-                        rows.map((row) => (
-                          <tr key={row.id || row.field} className="border-t border-white/10">
-                            <td className="px-4 py-3 align-top text-slate-200">
+              <div className="mt-5 border-t border-slate-200 pt-4">
+                <label className="text-sm font-medium text-slate-700">
+                  Add custom field
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={customFieldName}
+                    onChange={(event) => setCustomFieldName(event.target.value)}
+                    placeholder="Visa Sponsorship"
+                    className="input-shell w-full px-3 py-2 text-sm"
+                  />
+                  <button onClick={handleAddCustomField} className="ghost-link">
+                    Add
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="panel p-5 fade-in">
+              <div className="section-header">
+                <div>
+                  <p className="eyebrow">Sessions</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                    Recent work
+                  </h2>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {recentSessions.length ? (
+                  recentSessions.map((session) => (
+                    <button
+                      key={session.id}
+                      onClick={() => handleRestoreSession(session)}
+                      className="session-card"
+                    >
+                      <span className="session-title">{session.title}</span>
+                      <span className="session-meta">
+                        {session.rows.length} fields · {formatDate(session.updatedAt)}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="No recent sessions yet"
+                    description="Your previous extractions will appear here for quick resume."
+                  />
+                )}
+              </div>
+            </section>
+          </main>
+
+          <aside className="workspace-content panel p-5 fade-in">
+            <div className="section-header">
+              <div>
+                <p className="eyebrow">Generated outputs</p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                  Extracted Fields
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {OUTPUT_TABS.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setOutputTab(item.id)}
+                    className={outputTab === item.id ? "tab-active" : "tab-idle"}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-[#F8FAFB] p-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Review status</p>
+                <p className="mt-1 text-xs text-muted">
+                  {completeness.present}/{completeness.total} core fields are filled.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setTab("capture")} className={tab === "capture" ? "tab-active" : "tab-idle"}>
+                  Capture
+                </button>
+                <button onClick={() => setTab("review")} className={tab === "review" ? "tab-active" : "tab-idle"}>
+                  Review
+                </button>
+                <button onClick={handleTransliterate} className="ghost-link" disabled={!rows.length}>
+                  Convert to English
+                </button>
+                <button onClick={handleShare} className="primary-link" disabled={isSharing || !rows.length}>
+                  {isSharing ? "Sharing..." : "Create share link"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 progress-track">
+              <div className="progress-bar" style={{ width: `${completeness.percent}%` }} />
+            </div>
+
+            {completeness.missing.length ? (
+              <p className="mt-2 text-xs text-[#9A6700]">
+                Missing: {completeness.missing.join(", ")}
+              </p>
+            ) : null}
+
+            {shareUrl ? (
+              <div className="notice-card mt-4">
+                <p className="text-sm font-medium text-slate-900">Read-only share link</p>
+                <div className="mt-2 flex flex-col gap-2 md:flex-row">
+                  <input readOnly value={shareUrl} className="input-shell w-full px-3 py-2 text-sm" />
+                  <button onClick={() => copyText(shareUrl, "Share link")} className="ghost-link">
+                    Copy
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {warnings.length ? (
+              <div className="warning-stack mt-4">
+                {warnings.map((warning, index) => (
+                  <div key={`${warning.type}-${index}`} className="warning-card">
+                    <strong>{warning.label}</strong>
+                    <p>{warning.message}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {suggestedFields.length ? (
+              <div className="soft-panel mt-4 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Suggested fields</p>
+                  <p className="mt-1 text-xs text-muted">
+                    The AI found extra attributes you may want to track next time.
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {suggestedFields.map((field) => (
+                    <button
+                      key={field.key}
+                      onClick={() => handleAcceptSuggestedField(field)}
+                      className="pill-action"
+                    >
+                      + {field.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex-1 overflow-hidden">
+              {isExtracting ? (
+                <LoadingState />
+              ) : outputTab === "fields" ? (
+                rows.length ? (
+                  <div className="table-shell fade-in h-full overflow-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr>
+                          <th className="px-4 py-3">Field</th>
+                          <th className="px-4 py-3">Value</th>
+                          <th className="px-4 py-3">Category</th>
+                          <th className="px-4 py-3">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr key={row.id || row.field} className="border-t border-slate-200">
+                            <td className="px-4 py-3 align-top text-slate-800">
                               <div className="font-medium">{row.field}</div>
                               {row.snippet ? (
                                 <p className="mt-1 text-xs text-muted">{row.snippet}</p>
@@ -993,90 +1020,49 @@ export default function CapturePage() {
                             <td className="px-4 py-3 align-top">
                               <span className="pill">{row.category}</span>
                             </td>
-                            <td className="px-4 py-3 align-top text-slate-400">
+                            <td className="px-4 py-3 align-top text-slate-500">
                               {row.confidence.toFixed(2)}
                             </td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-10 text-center text-muted">
-                            Extract a transcript to populate the structured table.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <OutputCard
-                    title="HR brief"
-                    value={outputs.brief}
-                    onCopy={() => copyText(outputs.brief, "HR brief")}
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Start recording to see extracted data"
+                    description="Fields will appear here after you capture or paste a hiring conversation and run extraction."
                   />
-                  <OutputCard
-                    title="Email draft"
-                    value={outputs.email}
-                    onCopy={() => copyText(outputs.email, "Email draft")}
-                  />
-                  <OutputCard
-                    title="Short JD"
-                    value={outputs.jd}
-                    onCopy={() => copyText(outputs.jd, "Short JD")}
-                  />
-                  <OutputCard
-                    title="WhatsApp summary"
-                    value={outputs.whatsapp}
-                    onCopy={() => copyText(outputs.whatsapp, "WhatsApp summary")}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 soft-panel p-6 text-sm text-muted">
-                Use the capture tab to bring in voice, text, or file inputs. Once extraction runs, this review space will show the structured table, warnings, suggested fields, and generated outputs.
-              </div>
-            )}
-          </section>
-        </main>
-
-        <aside className="space-y-6">
-          <section className="panel p-5">
-            <p className="eyebrow">Recent sessions</p>
-            <h2 className="mt-2 text-xl font-semibold">Resume previous work</h2>
-            <div className="mt-4 space-y-3">
-              {recentSessions.length ? (
-                recentSessions.map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => handleRestoreSession(session)}
-                    className="session-card"
-                  >
-                    <span className="session-title">{session.title}</span>
-                    <span className="session-meta">
-                      {session.rows.length} fields · {formatDate(session.updatedAt)}
-                    </span>
-                  </button>
-                ))
+                )
               ) : (
-                <p className="text-sm text-muted">
-                  Recent sessions will appear here after your first extraction.
-                </p>
+                <div className="fade-in">
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    <button onClick={copyMarkdownTable} className="ghost-link" disabled={!rows.length}>
+                      Copy MD
+                    </button>
+                    <button onClick={exportCsv} className="ghost-link" disabled={!rows.length}>
+                      Export CSV
+                    </button>
+                    <button
+                      onClick={() => copyText(getOutputByTab(outputTab, outputs), getOutputLabel(outputTab))}
+                      className="primary-link"
+                      disabled={!getOutputByTab(outputTab, outputs)}
+                    >
+                      Copy {getOutputLabel(outputTab)}
+                    </button>
+                  </div>
+
+                  <OutputPanel
+                    title={getOutputTitle(outputTab)}
+                    value={getOutputByTab(outputTab, outputs)}
+                    emptyMessage="Generate outputs to review recruiter-ready content."
+                  />
+                </div>
               )}
             </div>
-          </section>
-
-          <section className="panel p-5">
-            <p className="eyebrow">Lean architecture</p>
-            <h2 className="mt-2 text-xl font-semibold">What changed</h2>
-            <ul className="mt-4 space-y-3 text-sm text-muted">
-              <li>Shared AI, privacy, output, and rate-limit logic moved into reusable `lib/` modules.</li>
-              <li>Consent, privacy redaction, recent sessions, and share links are part of the default workflow.</li>
-              <li>Dynamic field selection keeps extraction flexible without overwhelming the user.</li>
-            </ul>
-          </section>
-        </aside>
-      </div>
+          </aside>
+        </div>
+      </section>
 
       {toast ? (
         <div className={`toast ${toast.tone}`}>{toast.message}</div>
@@ -1085,28 +1071,57 @@ export default function CapturePage() {
   );
 }
 
-function OutputCard({
+function OutputPanel({
   title,
   value,
-  onCopy,
+  emptyMessage,
 }: {
   title: string;
   value: string;
-  onCopy: () => void;
+  emptyMessage: string;
 }) {
   return (
-    <div className="soft-panel p-4">
+    <div className="soft-panel min-h-[420px] p-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
-        <button onClick={onCopy} className="ghost-link">
-          Copy
-        </button>
+        <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        <span className="pill">Generated output</span>
       </div>
-      <textarea
-        readOnly
-        value={value}
-        className="input-shell mt-4 min-h-[180px] w-full resize-y p-4 text-sm"
-      />
+      {value ? (
+        <textarea
+          readOnly
+          value={value}
+          className="input-shell mt-4 min-h-[340px] w-full resize-none p-4 text-sm"
+        />
+      ) : (
+        <EmptyState title="Nothing generated yet" description={emptyMessage} />
+      )}
+    </div>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="empty-state">
+      <div className="empty-state-icon" />
+      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+      <p className="mt-2 max-w-md text-sm text-muted">{description}</p>
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="loading-shell">
+      <div className="skeleton h-10 w-40" />
+      <div className="skeleton h-20 w-full" />
+      <div className="skeleton h-20 w-full" />
+      <div className="skeleton h-20 w-4/5" />
     </div>
   );
 }
@@ -1162,6 +1177,59 @@ function groupFields(fields: ExtractionFieldConfig[]) {
     return groups;
   }, {});
 }
+
+function getOutputByTab(tab: OutputTabId, outputs: GeneratedOutputs) {
+  switch (tab) {
+    case "brief":
+      return outputs.brief;
+    case "email":
+      return outputs.email;
+    case "jd":
+      return outputs.jd;
+    case "whatsapp":
+      return outputs.whatsapp;
+    default:
+      return "";
+  }
+}
+
+function getOutputTitle(tab: OutputTabId) {
+  switch (tab) {
+    case "brief":
+      return "HR Brief";
+    case "email":
+      return "Email";
+    case "jd":
+      return "JD";
+    case "whatsapp":
+      return "WhatsApp";
+    default:
+      return "Fields";
+  }
+}
+
+function getOutputLabel(tab: OutputTabId) {
+  switch (tab) {
+    case "brief":
+      return "HR brief";
+    case "email":
+      return "Email";
+    case "jd":
+      return "JD";
+    case "whatsapp":
+      return "WhatsApp";
+    default:
+      return "Output";
+  }
+}
+
+const OUTPUT_TABS: Array<{ id: OutputTabId; label: string }> = [
+  { id: "fields", label: "Fields" },
+  { id: "brief", label: "HR Brief" },
+  { id: "email", label: "Email" },
+  { id: "jd", label: "JD" },
+  { id: "whatsapp", label: "WhatsApp" },
+];
 
 function createSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {

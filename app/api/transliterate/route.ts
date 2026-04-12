@@ -5,7 +5,7 @@ import { assertRateLimit } from "@/lib/server/rate-limit";
 import { transliterateValues } from "@/lib/server/transliterate";
 
 type TransliterateBody = {
-  values?: string[];
+  values?: unknown[];
 };
 
 export async function POST(request: Request) {
@@ -19,20 +19,38 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as TransliterateBody;
     const values = Array.isArray(body.values)
-      ? body.values.map((value) => value.trim()).filter(Boolean)
+      ? body.values.map((value) => {
+          if (typeof value === "string") {
+            return value.trim();
+          }
+          if (value == null) {
+            return "";
+          }
+          return String(value).trim();
+        })
       : [];
+    const pendingValues = values.filter(Boolean);
 
-    if (!values.length) {
+    if (!pendingValues.length) {
       return NextResponse.json(
         { ok: false, error: "No values provided for transliteration." },
         { status: 400 }
       );
     }
 
-    const result = await transliterateValues(
-      values,
+    const transliteratedValues = await transliterateValues(
+      pendingValues,
       request.headers.get("origin") || undefined
     );
+    let transliteratedIndex = 0;
+    const result = values.map((value) => {
+      if (!value) {
+        return value;
+      }
+      const nextValue = transliteratedValues[transliteratedIndex];
+      transliteratedIndex += 1;
+      return typeof nextValue === "string" && nextValue.trim() ? nextValue : value;
+    });
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {

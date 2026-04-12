@@ -36,7 +36,7 @@ export default function HomePage() {
           </div>
           <div className="preview-panel">
             <p className="eyebrow">What HireFlow now covers</p>
-            <ul className="mt-4 space-y-3 text-sm text-slate-200">
+            <ul className="mt-4 space-y-3 text-sm text-muted">
               <li>Voice, transcript, and file intake in one screen</li>
               <li>Privacy redaction before AI processing</li>
               <li>Suggested fields like tech stack, work mode, and notice period</li>

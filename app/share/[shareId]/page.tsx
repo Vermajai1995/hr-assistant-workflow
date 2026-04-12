@@ -49,16 +49,16 @@ export default async function SharePage({
           <section className="space-y-4">
             <div className="panel-soft p-5">
               <h2 className="text-lg font-semibold">Transcript</h2>
-              <p className="mt-3 whitespace-pre-wrap text-sm text-slate-200/90">
+              <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">
                 {snapshot.transcript}
               </p>
             </div>
 
             <div className="panel-soft p-5">
               <h2 className="text-lg font-semibold">Extracted fields</h2>
-              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-white/5 text-slate-300">
+                  <thead className="bg-slate-50 text-slate-600">
                     <tr>
                       <th className="px-4 py-3">Field</th>
                       <th className="px-4 py-3">Value</th>
@@ -67,10 +67,10 @@ export default async function SharePage({
                   </thead>
                   <tbody>
                     {snapshot.rows.map((row) => (
-                      <tr key={row.id || `${row.field}-${row.value}`} className="border-t border-white/10">
-                        <td className="px-4 py-3 text-slate-200">{row.field}</td>
-                        <td className="px-4 py-3 text-slate-100">{row.value}</td>
-                        <td className="px-4 py-3 text-slate-400">
+                      <tr key={row.id || `${row.field}-${row.value}`} className="border-t border-slate-200">
+                        <td className="px-4 py-3 text-slate-700">{row.field}</td>
+                        <td className="px-4 py-3 text-slate-900">{row.value}</td>
+                        <td className="px-4 py-3 text-slate-500">
                           {row.confidence.toFixed(2)}
                         </td>
                       </tr>
@@ -85,11 +85,11 @@ export default async function SharePage({
             <div className="panel-soft p-5">
               <h2 className="text-lg font-semibold">Warnings</h2>
               {snapshot.warnings.length ? (
-                <ul className="mt-4 space-y-3 text-sm text-slate-200">
+                <ul className="mt-4 space-y-3 text-sm text-slate-700">
                   {snapshot.warnings.map((warning, index) => (
-                    <li key={`${warning.type}-${index}`} className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
-                      <strong className="text-amber-200">{warning.label}</strong>
-                      <p className="mt-1 text-slate-300">{warning.message}</p>
+                    <li key={`${warning.type}-${index}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                      <strong className="text-amber-800">{warning.label}</strong>
+                      <p className="mt-1 text-amber-700">{warning.message}</p>
                     </li>
                   ))}
                 </ul>
@@ -116,9 +116,9 @@ export default async function SharePage({
 
 function OutputBlock({ title, content }: { title: string; content: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
-      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
         {content || "Not generated"}
       </p>
     </div>
