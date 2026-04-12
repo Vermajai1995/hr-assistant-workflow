@@ -114,6 +114,7 @@ export default function CapturePage() {
   );
   const [outputTab, setOutputTab] = useState<OutputTabId>("fields");
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [lastExtractionSignature, setLastExtractionSignature] = useState("");
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -122,10 +123,24 @@ export default function CapturePage() {
     () => getCompleteness(rows, CORE_FIELD_LABELS),
     [rows]
   );
+  const extractionSignature = useMemo(
+    () =>
+      JSON.stringify({
+        transcript: transcript.trim(),
+        selectedFields: selectedFields
+          .filter((field) => field.enabled)
+          .map((field) => field.key)
+          .sort(),
+      }),
+    [selectedFields, transcript]
+  );
   const visibleRows = useMemo(
     () => rows.filter((row) => reviewSelection[getRowKey(row)] ?? true),
     [rows, reviewSelection]
   );
+  const allRowsSelected =
+    rows.length > 0 &&
+    rows.every((row) => reviewSelection[getRowKey(row)] ?? true);
 
   useEffect(() => {
     setMounted(true);
@@ -307,15 +322,15 @@ export default function CapturePage() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
   }
 
-  async function handleExtract() {
+  async function runExtraction(nextStep: StepId = "review") {
     if (!consentAccepted) {
       setError("Please confirm consent before processing hiring data.");
-      return;
+      return false;
     }
 
     if (!transcript.trim()) {
       setError("Add a transcript, file, or live voice capture before extracting.");
-      return;
+      return false;
     }
 
     setIsExtracting(true);
@@ -345,9 +360,11 @@ export default function CapturePage() {
       setWarnings(data.warnings);
       setOutputs(data.outputs);
       setStatus(data.extractionSummary);
-      setCurrentStep("review");
+      setCurrentStep(nextStep);
       setOutputTab("fields");
+      setLastExtractionSignature(extractionSignature);
       showToast(`Extracted ${nextRows.length} fields`, "success");
+      return true;
     } catch (extractError) {
       setError(
         extractError instanceof Error
@@ -356,9 +373,31 @@ export default function CapturePage() {
       );
       setStatus("Extraction did not complete.");
       showToast("Extraction failed", "error");
+      return false;
     } finally {
       setIsExtracting(false);
     }
+  }
+
+  async function handleExtract() {
+    await runExtraction("review");
+  }
+
+  async function ensureFreshExtraction(nextStep: StepId) {
+    if (nextStep === "capture") {
+      setCurrentStep("capture");
+      return;
+    }
+
+    const needsExtraction = !rows.length || extractionSignature !== lastExtractionSignature;
+
+    if (needsExtraction) {
+      await runExtraction(nextStep);
+      return;
+    }
+
+    setCurrentStep(nextStep);
+    setOutputTab("fields");
   }
 
   async function handleTransliterate() {
@@ -478,6 +517,7 @@ export default function CapturePage() {
     setOutputs(EMPTY_OUTPUTS);
     setShareUrl("");
     setCurrentStep("capture");
+    setLastExtractionSignature("");
 
     try {
       recognitionRef.current.lang = lang;
@@ -550,6 +590,15 @@ export default function CapturePage() {
     setShareUrl(snapshot.shareUrl || "");
     setStatus(`Loaded session from ${formatDate(snapshot.updatedAt)}.`);
     setCurrentStep(snapshot.rows.length ? "review" : "capture");
+    setLastExtractionSignature(
+      JSON.stringify({
+        transcript: snapshot.transcript.trim(),
+        selectedFields: snapshot.selectedFields
+          .filter((field) => field.enabled)
+          .map((field) => field.key)
+          .sort(),
+      })
+    );
     setError(null);
     setSessionsOpen(false);
   }
@@ -602,6 +651,7 @@ export default function CapturePage() {
 
       setCurrentStep("capture");
       setRows([]);
+      setLastExtractionSignature("");
       showToast(`Loaded ${file.name}`, "success");
     } catch {
       setError(`Failed to parse ${file.name}. Try TXT, DOCX, or a cleaner PDF.`);
@@ -623,6 +673,7 @@ export default function CapturePage() {
     setCurrentStep("capture");
     setFileName("");
     setOutputTab("fields");
+    setLastExtractionSignature("");
   }
 
   async function copyText(value: string, label: string) {
@@ -686,12 +737,12 @@ export default function CapturePage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6">
+    <div className="mx-auto max-w-7xl px-4 py-5">
       <section className="workspace-shell fade-in">
         <div className="workspace-topbar">
           <div>
             <p className="eyebrow">Workspace</p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+            <h1 className="mt-1.5 text-[1.65rem] font-semibold text-slate-900">
               Hiring workflow
             </h1>
           </div>
@@ -747,7 +798,8 @@ export default function CapturePage() {
                 key={step.id}
                 type="button"
                 className={`step-link ${active ? "active" : ""} ${completed ? "complete" : ""}`}
-                onClick={() => setCurrentStep(step.id)}
+                onClick={() => void ensureFreshExtraction(step.id)}
+                disabled={isExtracting}
               >
                 <span className="step-index">{completed ? "✓" : index + 1}</span>
                 <span>{step.label}</span>
@@ -764,11 +816,11 @@ export default function CapturePage() {
         ) : null}
 
         {currentStep === "capture" ? (
-          <section className="panel p-6 fade-in workspace-panel">
+          <section className="panel p-5 fade-in workspace-panel compact-panel">
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 1</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Capture</h2>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Capture</h2>
               </div>
             </div>
 
@@ -818,7 +870,7 @@ export default function CapturePage() {
               <span className="capture-status-copy">{status}</span>
             </div>
 
-            <div className="mt-5">
+            <div className="mt-4">
               <div className="flex items-center justify-between gap-3">
                 <label className="text-sm font-medium text-slate-700">Conversation input</label>
                 <span className="text-xs text-muted">{transcript.length} characters</span>
@@ -827,11 +879,11 @@ export default function CapturePage() {
               <textarea
                 value={transcript}
                 onChange={(event) => setTranscript(event.target.value)}
-                className="input-shell mt-3 min-h-[300px] w-full resize-none p-4 text-[0.95rem] leading-7"
+                className="input-shell mt-2 min-h-[240px] w-full resize-none p-3 text-[0.9rem] leading-6"
                 placeholder="Paste the hiring conversation here..."
               />
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="ghost-link cursor-pointer">
                     Upload file
@@ -858,11 +910,11 @@ export default function CapturePage() {
         ) : null}
 
         {currentStep === "review" ? (
-          <section className="panel p-6 fade-in workspace-panel">
+          <section className="panel p-5 fade-in workspace-panel compact-panel">
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 2</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Review Fields</h2>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Review Fields</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -870,9 +922,9 @@ export default function CapturePage() {
                   Back
                 </button>
                 <button
-                  onClick={() => setCurrentStep("output")}
+                  onClick={() => void ensureFreshExtraction("output")}
                   className="primary-link"
-                  disabled={!rows.length || reviewReadyCount < 1}
+                  disabled={isExtracting || !rows.length || reviewReadyCount < 1}
                 >
                   Generate Output
                 </button>
@@ -881,48 +933,41 @@ export default function CapturePage() {
 
             {rows.length ? (
               <>
-                <div className="mt-5 review-meta">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">Review status</p>
-                    <p className="mt-1 text-xs text-muted">
-                      {reviewReadyCount} fields selected · {completeness.present}/{completeness.total} core fields filled
-                    </p>
+                <div className="mt-3 review-meta">
+                  <div className="review-meta-line">
+                    <span className="font-semibold text-slate-900">Review status</span>
+                    <span className="text-muted">|</span>
+                    <span>{reviewReadyCount} fields selected</span>
+                    <span className="text-muted">|</span>
+                    <span>
+                      {completeness.present}/{completeness.total} core fields filled
+                    </span>
                   </div>
                   <div className="progress-track review-progress">
                     <div className="progress-bar" style={{ width: `${completeness.percent}%` }} />
                   </div>
                 </div>
 
-                <div className="selection-toolbar mt-4">
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() =>
-                        setReviewSelection(
-                          Object.fromEntries(rows.map((row) => [getRowKey(row), true]))
+                <div className="selection-toolbar mt-3">
+                  <button
+                    onClick={() =>
+                      setReviewSelection(
+                        Object.fromEntries(
+                          rows.map((row) => [getRowKey(row), !allRowsSelected])
                         )
-                      }
-                      className="ghost-link"
-                      type="button"
-                    >
-                      Select All
-                    </button>
-                    <button
-                      onClick={() =>
-                        setReviewSelection(
-                          Object.fromEntries(rows.map((row) => [getRowKey(row), false]))
-                        )
-                      }
-                      className="ghost-link"
-                      type="button"
-                    >
-                      Deselect All
-                    </button>
-                  </div>
+                      )
+                    }
+                    className="ghost-link smart-toggle"
+                    type="button"
+                  >
+                    <span>{allRowsSelected ? "☑" : "☐"}</span>
+                    <span>{allRowsSelected ? "Deselect All" : "Select All"}</span>
+                  </button>
                   <p className="text-xs text-muted">Select at least one field to continue.</p>
                 </div>
 
                 {warnings.length ? (
-                  <div className="warning-stack mt-4">
+                  <div className="warning-stack mt-3">
                     {warnings.map((warning, index) => (
                       <div key={`${warning.type}-${index}`} className="warning-card">
                         <strong>{warning.label}</strong>
@@ -933,12 +978,12 @@ export default function CapturePage() {
                 ) : null}
 
                 {suggestedFields.length ? (
-                  <div className="soft-panel mt-4 p-4">
+                  <div className="soft-panel mt-3 p-3.5">
                     <p className="text-sm font-semibold text-slate-900">Suggested fields</p>
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="mt-0.5 text-xs text-muted">
                       The AI found extra attributes you may want to track next time.
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-2.5 flex flex-wrap gap-2">
                       {suggestedFields.map((field) => (
                         <button
                           key={field.key}
@@ -952,49 +997,36 @@ export default function CapturePage() {
                   </div>
                 ) : null}
 
-                <div className="review-grid mt-5">
+                <div className="review-grid mt-3">
                   {rows.map((row) => {
                     const checked = reviewSelection[getRowKey(row)] ?? true;
 
                     return (
-                      <article
+                      <label
                         key={getRowKey(row)}
                         className={`field-card ${checked ? "selected" : "muted"}`}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="field-card-label">{row.field}</p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <span className="pill">{row.category}</span>
-                              {DEFAULT_REVIEW_FIELDS.has(row.field) ? (
-                                <span className="pill">Default</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <label className="inline-flex items-center gap-2 text-xs text-muted">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => handleReviewSelectionToggle(row)}
-                            />
-                            <span>Selected</span>
-                          </label>
-                        </div>
-                      </article>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleReviewSelectionToggle(row)}
+                        />
+                        <span className="field-card-label">{row.field}</span>
+                      </label>
                     );
                   })}
                 </div>
 
-                <div className="review-config-grid mt-5">
-                  <div className="soft-panel p-4">
+                <div className="review-config-grid mt-3">
+                  <div className="soft-panel p-3.5">
                     <p className="text-sm font-semibold text-slate-900">Extraction fields</p>
-                    <div className="mt-4 space-y-4">
+                    <div className="mt-3 space-y-3">
                       {Object.entries(groupedFields).map(([category, items]) => (
                         <div key={category}>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                             {category}
                           </p>
-                          <div className="mt-2 grid gap-2">
+                          <div className="mt-2 grid gap-2 field-toggle-grid">
                             {items.map((field) => (
                               <label key={field.key} className="field-toggle">
                                 <input
@@ -1014,12 +1046,12 @@ export default function CapturePage() {
                     </div>
                   </div>
 
-                  <div className="soft-panel p-4">
+                  <div className="soft-panel p-3.5">
                     <p className="text-sm font-semibold text-slate-900">Custom field</p>
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="mt-0.5 text-xs text-muted">
                       Add new extraction labels without changing the underlying workflow.
                     </p>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-3 flex gap-2">
                       <input
                         value={customFieldName}
                         onChange={(event) => setCustomFieldName(event.target.value)}
@@ -1043,11 +1075,11 @@ export default function CapturePage() {
         ) : null}
 
         {currentStep === "output" ? (
-          <section className="panel p-6 fade-in workspace-panel">
+          <section className="panel p-5 fade-in workspace-panel compact-panel">
             <div className="section-header">
               <div>
                 <p className="eyebrow">Step 3</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-900">Generate Output</h2>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Generate Output</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1067,7 +1099,7 @@ export default function CapturePage() {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               {OUTPUT_TABS.map((item) => (
                 <button
                   key={item.id}
@@ -1080,7 +1112,7 @@ export default function CapturePage() {
             </div>
 
             {shareUrl ? (
-              <div className="notice-card mt-4">
+              <div className="notice-card mt-3">
                 <p className="text-sm font-medium text-slate-900">Read-only share link</p>
                 <div className="mt-2 flex flex-col gap-2 md:flex-row">
                   <input readOnly value={shareUrl} className="input-shell w-full px-3 py-2 text-sm" />
@@ -1091,7 +1123,7 @@ export default function CapturePage() {
               </div>
             ) : null}
 
-            <div className="mt-5 flex-1 overflow-hidden">
+            <div className="mt-3 flex-1 overflow-hidden">
               {isExtracting ? (
                 <LoadingState />
               ) : outputTab === "fields" ? (
@@ -1143,7 +1175,7 @@ export default function CapturePage() {
                 )
               ) : (
                 <div className="fade-in">
-                  <div className="mb-4 flex flex-wrap gap-2">
+                  <div className="mb-3 flex flex-wrap gap-2">
                     <button onClick={copyMarkdownTable} className="ghost-link" disabled={!rows.length}>
                       Copy MD
                     </button>
@@ -1188,16 +1220,16 @@ function OutputPanel({
   emptyMessage: string;
 }) {
   return (
-    <div className="soft-panel min-h-[420px] p-4">
+    <div className="soft-panel min-h-[360px] p-3.5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
         <span className="pill">Generated output</span>
       </div>
       {value ? (
         <textarea
           readOnly
           value={value}
-          className="input-shell mt-4 min-h-[340px] w-full resize-none p-4 text-sm"
+          className="input-shell mt-3 min-h-[290px] w-full resize-none p-3 text-sm"
         />
       ) : (
         <EmptyState title="Nothing generated yet" description={emptyMessage} />
