@@ -67,12 +67,12 @@ declare global {
   }
 }
 
-const SAMPLE_TRANSCRIPT = `Recruiter: Hi, we need to hire React developers for a fintech client.
-Hiring Manager: Looking for 4 people, Pune based, hybrid working.
-Recruiter: Budget range?
-Hiring Manager: 18 to 24 LPA fixed, immediate joiners preferred.
-Recruiter: Key skills?
-Hiring Manager: Strong TypeScript, React, Next.js, and stakeholder communication.`;
+const SAMPLE_TRANSCRIPT = `Recruiter: Bhai hume 4 dotnet developers chahiye ek fintech client ke liye
+Client: Location Pune hai, hybrid model rahega
+Recruiter: Budget kya rahega?
+Client: 18-24 LPA, immediate joiners preferred
+Recruiter: Skills kya chahiye?
+Client: .NET, SQL, thoda AWS aur communication`;
 
 const STORAGE_KEY = "hireflow:sessions:v2";
 const MAX_RECENT_SESSIONS = 8;
@@ -102,7 +102,7 @@ export default function CapturePage() {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(true);
-  const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("en-IN");
+  const [lang, setLang] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
   const [customFieldName, setCustomFieldName] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [shareUrl, setShareUrl] = useState("");
@@ -121,6 +121,10 @@ export default function CapturePage() {
   const completeness = useMemo(
     () => getCompleteness(rows, CORE_FIELD_LABELS),
     [rows]
+  );
+  const visibleRows = useMemo(
+    () => rows.filter((row) => reviewSelection[getRowKey(row)] ?? true),
+    [rows, reviewSelection]
   );
 
   useEffect(() => {
@@ -177,7 +181,7 @@ export default function CapturePage() {
       const next: Record<string, boolean> = {};
       for (const row of rows) {
         const key = getRowKey(row);
-        next[key] = current[key] ?? true;
+        next[key] = current[key] ?? DEFAULT_REVIEW_FIELDS.has(row.field);
       }
       return next;
     });
@@ -212,7 +216,7 @@ export default function CapturePage() {
       for (let index = 0; index < event.results.length; index += 1) {
         value += `${event.results[index][0].transcript} `;
       }
-      setTranscript(value.trim());
+      setTranscript(formatConversationTranscript(value.trim()));
     };
 
     recognition.onerror = (event) => {
@@ -582,7 +586,7 @@ export default function CapturePage() {
           parsedText += `${(content.items as Array<{ str?: string }>).map((item) => item.str || "").join(" ")}\n`;
         }
 
-        setTranscript(parsedText.trim());
+        setTranscript(formatConversationTranscript(parsedText.trim()));
       } else if (
         file.type ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -591,9 +595,9 @@ export default function CapturePage() {
         const result = await mammoth.extractRawText({
           arrayBuffer: await file.arrayBuffer(),
         });
-        setTranscript(result.value.trim());
+        setTranscript(formatConversationTranscript(result.value.trim()));
       } else {
-        setTranscript((await file.text()).trim());
+        setTranscript(formatConversationTranscript((await file.text()).trim()));
       }
 
       setCurrentStep("capture");
@@ -632,9 +636,10 @@ export default function CapturePage() {
   }
 
   function copyMarkdownTable() {
+    const exportRows = visibleRows.length ? visibleRows : rows;
     const header =
       "| # | Field | Value | Category | Confidence | Snippet |\n|---|---|---|---|---|---|\n";
-    const body = rows
+    const body = exportRows
       .map(
         (row, index) =>
           `| ${index + 1} | ${escapeMd(row.field)} | ${escapeMd(row.value)} | ${escapeMd(
@@ -646,9 +651,10 @@ export default function CapturePage() {
   }
 
   function exportCsv() {
+    const exportRows = visibleRows.length ? visibleRows : rows;
     const csv =
       "Index,Field,Value,Category,Confidence,Snippet\n" +
-      rows
+      exportRows
         .map(
           (row, index) =>
             [
@@ -662,7 +668,7 @@ export default function CapturePage() {
         )
         .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -673,7 +679,7 @@ export default function CapturePage() {
   }
 
   const groupedFields = groupFields(selectedFields);
-  const reviewReadyCount = rows.filter((row) => reviewSelection[getRowKey(row)] ?? true).length;
+  const reviewReadyCount = visibleRows.length;
 
   if (!mounted) {
     return <div className="mx-auto max-w-5xl px-4 py-20 text-sm text-muted">Loading HireFlow...</div>;
@@ -741,11 +747,7 @@ export default function CapturePage() {
                 key={step.id}
                 type="button"
                 className={`step-link ${active ? "active" : ""} ${completed ? "complete" : ""}`}
-                onClick={() => {
-                  if (step.id === "capture" || completed || (step.id === "review" && rows.length)) {
-                    setCurrentStep(step.id);
-                  }
-                }}
+                onClick={() => setCurrentStep(step.id)}
               >
                 <span className="step-index">{completed ? "✓" : index + 1}</span>
                 <span>{step.label}</span>
@@ -778,8 +780,8 @@ export default function CapturePage() {
                 }
                 className="input-shell min-w-[160px] px-3 py-2 text-sm"
               >
-                <option value="en-IN">English</option>
                 <option value="hi-IN">Hinglish</option>
+                <option value="en-IN">English</option>
                 <option value="en-US">English (US)</option>
               </select>
 
@@ -812,19 +814,8 @@ export default function CapturePage() {
               <button onClick={handleReset} className="ghost-link">
                 Clear
               </button>
-            </div>
 
-            <div className="mt-4 status-row">
-              <span
-                className={
-                  isListening
-                    ? "status-dot live"
-                    : isExtracting
-                      ? "status-dot busy"
-                      : "status-dot idle"
-                }
-              />
-              <span>{status}</span>
+              <span className="capture-status-copy">{status}</span>
             </div>
 
             <div className="mt-5">
@@ -836,7 +827,7 @@ export default function CapturePage() {
               <textarea
                 value={transcript}
                 onChange={(event) => setTranscript(event.target.value)}
-                className="input-shell mt-3 min-h-[380px] w-full resize-none p-5 text-base leading-8"
+                className="input-shell mt-3 min-h-[300px] w-full resize-none p-4 text-[0.95rem] leading-7"
                 placeholder="Paste the hiring conversation here..."
               />
 
@@ -881,7 +872,7 @@ export default function CapturePage() {
                 <button
                   onClick={() => setCurrentStep("output")}
                   className="primary-link"
-                  disabled={!rows.length}
+                  disabled={!rows.length || reviewReadyCount < 1}
                 >
                   Generate Output
                 </button>
@@ -894,12 +885,40 @@ export default function CapturePage() {
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Review status</p>
                     <p className="mt-1 text-xs text-muted">
-                      {reviewReadyCount} fields marked for review · {completeness.present}/{completeness.total} core fields filled
+                      {reviewReadyCount} fields selected · {completeness.present}/{completeness.total} core fields filled
                     </p>
                   </div>
                   <div className="progress-track review-progress">
                     <div className="progress-bar" style={{ width: `${completeness.percent}%` }} />
                   </div>
+                </div>
+
+                <div className="selection-toolbar mt-4">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() =>
+                        setReviewSelection(
+                          Object.fromEntries(rows.map((row) => [getRowKey(row), true]))
+                        )
+                      }
+                      className="ghost-link"
+                      type="button"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={() =>
+                        setReviewSelection(
+                          Object.fromEntries(rows.map((row) => [getRowKey(row), false]))
+                        )
+                      }
+                      className="ghost-link"
+                      type="button"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted">Select at least one field to continue.</p>
                 </div>
 
                 {warnings.length ? (
@@ -945,7 +964,12 @@ export default function CapturePage() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="field-card-label">{row.field}</p>
-                            <span className="pill mt-3 inline-flex">{row.category}</span>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className="pill">{row.category}</span>
+                              {DEFAULT_REVIEW_FIELDS.has(row.field) ? (
+                                <span className="pill">Default</span>
+                              ) : null}
+                            </div>
                           </div>
                           <label className="inline-flex items-center gap-2 text-xs text-muted">
                             <input
@@ -955,17 +979,6 @@ export default function CapturePage() {
                             />
                             <span>Selected</span>
                           </label>
-                        </div>
-
-                        <input
-                          value={row.value}
-                          onChange={(event) => handleRowValueChange(row.id, event.target.value)}
-                          className="input-shell mt-4 w-full px-3 py-2 text-sm"
-                        />
-
-                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted">
-                          <span>{row.snippet || "No snippet captured"}</span>
-                          <span>{row.confidence.toFixed(2)}</span>
                         </div>
                       </article>
                     );
@@ -1082,7 +1095,7 @@ export default function CapturePage() {
               {isExtracting ? (
                 <LoadingState />
               ) : outputTab === "fields" ? (
-                rows.length ? (
+                visibleRows.length ? (
                   <div className="table-shell fade-in h-full overflow-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
@@ -1094,7 +1107,7 @@ export default function CapturePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((row) => (
+                        {visibleRows.map((row) => (
                           <tr key={row.id || row.field} className="border-t border-slate-200">
                             <td className="px-4 py-3 align-top text-slate-800">
                               <div className="font-medium">{row.field}</div>
@@ -1114,8 +1127,8 @@ export default function CapturePage() {
                             <td className="px-4 py-3 align-top">
                               <span className="pill">{row.category}</span>
                             </td>
-                            <td className="px-4 py-3 align-top text-slate-500">
-                              {row.confidence.toFixed(2)}
+                            <td className="px-4 py-3 align-top">
+                              <ConfidenceBadge confidence={row.confidence} />
                             </td>
                           </tr>
                         ))}
@@ -1220,6 +1233,19 @@ function LoadingState() {
   );
 }
 
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  const level =
+    confidence >= 0.85 ? "high" : confidence >= 0.65 ? "medium" : "low";
+  const label = level === "high" ? "High" : level === "medium" ? "Medium" : "Low";
+
+  return (
+    <span className={`confidence-badge ${level}`}>
+      <span className="confidence-dot" />
+      {label}
+    </span>
+  );
+}
+
 function buildSnapshot({
   sessionId,
   transcript,
@@ -1319,6 +1345,26 @@ function getRowKey(row: ExtractedFieldRow) {
   return row.id || `${row.field}-${row.category}`;
 }
 
+function formatConversationTranscript(value: string) {
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return value;
+  }
+
+  const hasExplicitSpeakers = lines.some((line) => /^[A-Za-z ]+:/u.test(line));
+  if (hasExplicitSpeakers) {
+    return lines.join("\n");
+  }
+
+  return lines
+    .map((line, index) => `User ${index % 2 === 0 ? 1 : 2}: ${line}`)
+    .join("\n");
+}
+
 function createSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -1360,3 +1406,10 @@ const STEPS: Array<{ id: StepId; label: string }> = [
   { id: "review", label: "Review Fields" },
   { id: "output", label: "Generate Output" },
 ];
+
+const DEFAULT_REVIEW_FIELDS = new Set([
+  "Position Title",
+  "Total Openings",
+  "Budget Range (INR/month)",
+  "Client Location / City",
+]);
