@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { GlobalLoaderProvider } from "@/components/global-loader";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
@@ -15,20 +16,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <div className="site-shell">
-          <SiteHeader />
+        <GlobalLoaderProvider>
+          <div className="site-shell">
+            <SiteHeader />
 
-          <main className="flex-1">{children}</main>
+            <main className="flex-1">{children}</main>
 
-          <footer className="site-footer">
-            <div className="site-footer-inner">
-              <span>Privacy-first recruiter workspace.</span>
-              <Link target="_blank" href="/privacy" className="footer-link">
-                Privacy & Terms
-              </Link>
-            </div>
-          </footer>
-        </div>
+            <footer className="site-footer">
+              <div className="site-footer-inner">
+                <span>Privacy-first recruiter workspace.</span>
+                <Link target="_blank" href="/privacy" className="footer-link">
+                  Privacy & Terms
+                </Link>
+              </div>
+            </footer>
+          </div>
+        </GlobalLoaderProvider>
       </body>
     </html>
   );

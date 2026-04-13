@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { useGlobalLoader } from "@/components/global-loader";
 import {
   buildSessionTitle,
   CORE_FIELD_LABELS,
@@ -29,6 +30,7 @@ import type {
 
 type StepId = "capture" | "review" | "output";
 type OutputTabId = "fields" | "brief" | "email" | "jd" | "whatsapp";
+type EditableOutputTabId = Exclude<OutputTabId, "fields">;
 type ToastTone = "success" | "error" | "info";
 
 type SpeechRecognitionEvent = Event & {
@@ -128,9 +130,11 @@ export default function CapturePage() {
   const [outputTab, setOutputTab] = useState<OutputTabId>("fields");
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [lastExtractionSignature, setLastExtractionSignature] = useState("");
+  const [rewritingTab, setRewritingTab] = useState<EditableOutputTabId | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const { showLoader, hideLoader } = useGlobalLoader();
 
   const completeness = useMemo(
     () => getCompleteness(rows, CORE_FIELD_LABELS),
@@ -354,6 +358,7 @@ export default function CapturePage() {
     setIsExtracting(true);
     setError(null);
     setStatus("Extracting fields, suggested attributes, and polished outputs...");
+    const loaderId = showLoader(nextStep === "output" ? "generate" : "review");
 
     try {
       const response = await fetch("/api/extract-pii", {
@@ -394,6 +399,7 @@ export default function CapturePage() {
       return false;
     } finally {
       setIsExtracting(false);
+      hideLoader(loaderId);
     }
   }
 
@@ -701,6 +707,62 @@ export default function CapturePage() {
     } catch {
       setError(`Could not copy ${label.toLowerCase()}.`);
       showToast("Clipboard failed", "error");
+    }
+  }
+
+  function handleOutputChange(tab: EditableOutputTabId, value: string) {
+    setOutputs((current) => ({
+      ...current,
+      [tab]: value,
+    }));
+  }
+
+  async function handleRewriteOutput(tab: EditableOutputTabId) {
+    const currentValue = outputs[tab];
+
+    if (!currentValue.trim()) {
+      return;
+    }
+
+    setRewritingTab(tab);
+    setError(null);
+    const loaderId = showLoader("rewrite");
+
+    try {
+      const response = await fetch("/api/rewrite-output", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: currentValue,
+          section: getOutputTitle(tab),
+        }),
+      });
+
+      const data = (await response.json()) as {
+        ok?: boolean;
+        result?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.ok || !data.result) {
+        throw new Error(data.error || "Rewrite failed.");
+      }
+
+      setOutputs((current) => ({
+        ...current,
+        [tab]: data.result || current[tab],
+      }));
+      showToast(`${getOutputTitle(tab)} updated`, "success");
+    } catch (rewriteError) {
+      setError(
+        rewriteError instanceof Error
+          ? rewriteError.message
+          : "Unexpected rewrite failure."
+      );
+      showToast("Rewrite failed", "error");
+    } finally {
+      setRewritingTab(null);
+      hideLoader(loaderId);
     }
   }
 
@@ -1156,9 +1218,7 @@ export default function CapturePage() {
             ) : null}
 
             <div className="mt-3 flex-1 overflow-hidden">
-              {isExtracting ? (
-                <LoadingState />
-              ) : outputTab === "fields" ? (
+              {outputTab === "fields" ? (
                 visibleRows.length ? (
                   <div className="table-shell fade-in h-full overflow-auto">
                     <table className="w-full text-left text-sm">
@@ -1230,6 +1290,13 @@ export default function CapturePage() {
                   <OutputPanel
                     title={getOutputTitle(outputTab)}
                     value={getOutputByTab(outputTab, outputs)}
+                    onChange={(value) =>
+                      handleOutputChange(outputTab as EditableOutputTabId, value)
+                    }
+                    onRewrite={() =>
+                      void handleRewriteOutput(outputTab as EditableOutputTabId)
+                    }
+                    isRewriting={rewritingTab === outputTab}
                     emptyMessage="Generate outputs to review recruiter-ready content."
                   />
                 </div>
@@ -1247,32 +1314,42 @@ export default function CapturePage() {
 function OutputPanel({
   title,
   value,
+  onChange,
+  onRewrite,
+  isRewriting,
   emptyMessage,
 }: {
   title: string;
   value: string;
+  onChange: (value: string) => void;
+  onRewrite: () => void;
+  isRewriting: boolean;
   emptyMessage: string;
 }) {
   return (
     <div className="soft-panel min-h-[360px] p-3.5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-        <span className="pill">Generated output</span>
-      </div>
-      {value ? (
-        <div className="output-shell">
-          {value.split("\n").map((line, index) => (
-            <p
-              key={`${title}-${index}`}
-              className={`output-line ${/\bN\/A\b/.test(line) ? "na" : ""}`}
-            >
-              {line || "\u00A0"}
-            </p>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="pill">Generated output</span>
+          <button
+            type="button"
+            onClick={onRewrite}
+            disabled={isRewriting || !value.trim()}
+            className="ghost-link"
+          >
+            {isRewriting ? "Rewriting..." : "🤖 Rewrite with AI"}
+          </button>
         </div>
-      ) : (
-        <EmptyState title="Nothing generated yet" description={emptyMessage} />
-      )}
+      </div>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={emptyMessage}
+        className={`input-shell mt-3 min-h-[290px] w-full resize-none p-3 text-sm leading-6 ${
+          /\bN\/A\b/.test(value) ? "text-[#B42318]" : ""
+        }`}
+      />
     </div>
   );
 }
@@ -1289,17 +1366,6 @@ function EmptyState({
       <div className="empty-state-icon" />
       <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
       <p className="mt-2 max-w-md text-sm text-muted">{description}</p>
-    </div>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="loading-shell">
-      <div className="skeleton h-10 w-40" />
-      <div className="skeleton h-20 w-full" />
-      <div className="skeleton h-20 w-full" />
-      <div className="skeleton h-20 w-4/5" />
     </div>
   );
 }
