@@ -72,7 +72,7 @@ declare global {
 const SAMPLE_TRANSCRIPT = `Recruiter: Hello sir, mai Riya bol rahi hu ABC Consulting se, hum companies ke liye hiring support karte hain. Kya aapke yahan abhi koi openings ya requirements hai?
 Client: Haan ji, mai Gautam bol raha hu XYZ Company se. Abhi hume kuch hiring karni hai.
 Recruiter: Ji sir, kis type ke profiles chahiye aapko?
-Client: Hume 5 junior developers chahiye, fresher bhi chalega. Aur 5 QA test engineers bhi chahiye, unme bhi freshers consider kar sakte hain.
+Client: Hume 5 junior developers chahiye, fresher bhi chalega.
 Recruiter: Okay sir, location kya rahegi aur work mode kaisa hoga? Remote, hybrid ya work from office?
 Client: Location Pune rahegi aur work from office hi hai, hybrid option abhi nahi hai.
 Recruiter: Samajh gaya sir. Experience range kya consider karna hai?
@@ -131,9 +131,12 @@ export default function CapturePage() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [lastExtractionSignature, setLastExtractionSignature] = useState("");
   const [rewritingTab, setRewritingTab] = useState<EditableOutputTabId | null>(null);
+  const [highlightedOutputTab, setHighlightedOutputTab] =
+    useState<EditableOutputTabId | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
   const { showLoader, hideLoader } = useGlobalLoader();
 
   const completeness = useMemo(
@@ -333,6 +336,9 @@ export default function CapturePage() {
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current);
       }
+      if (highlightTimerRef.current) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
     };
   }, []);
 
@@ -342,6 +348,30 @@ export default function CapturePage() {
       window.clearTimeout(toastTimerRef.current);
     }
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
+  }
+
+  function triggerOutputHighlight(tab: EditableOutputTabId) {
+    setHighlightedOutputTab(tab);
+    if (highlightTimerRef.current) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedOutputTab((current) => (current === tab ? null : current));
+    }, 1500);
+  }
+
+  async function autoCopyHrBrief(brief: string) {
+    if (!brief.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(brief);
+      triggerOutputHighlight("brief");
+      showToast("HR Brief copied — ready to paste anywhere 🚀", "success");
+    } catch {
+      // fail silently by design
+    }
   }
 
   async function runExtraction(nextStep: StepId = "review") {
@@ -384,8 +414,11 @@ export default function CapturePage() {
       setOutputs(data.outputs);
       setStatus(data.extractionSummary);
       setCurrentStep(nextStep);
-      setOutputTab("fields");
+      setOutputTab(nextStep === "output" ? "brief" : "fields");
       setLastExtractionSignature(extractionSignature);
+      if (nextStep === "output") {
+        void autoCopyHrBrief(data.outputs.brief);
+      }
       showToast(`Extracted ${nextRows.length} fields`, "success");
       return true;
     } catch (extractError) {
@@ -1297,6 +1330,7 @@ export default function CapturePage() {
                       void handleRewriteOutput(outputTab as EditableOutputTabId)
                     }
                     isRewriting={rewritingTab === outputTab}
+                    isHighlighted={highlightedOutputTab === outputTab}
                     emptyMessage="Generate outputs to review recruiter-ready content."
                   />
                 </div>
@@ -1317,6 +1351,7 @@ function OutputPanel({
   onChange,
   onRewrite,
   isRewriting,
+  isHighlighted,
   emptyMessage,
 }: {
   title: string;
@@ -1324,14 +1359,46 @@ function OutputPanel({
   onChange: (value: string) => void;
   onRewrite: () => void;
   isRewriting: boolean;
+  isHighlighted: boolean;
   emptyMessage: string;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (!value.trim()) {
+      return;
+    }
+
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1400);
+      })
+      .catch(() => {
+        // fail silently by design
+      });
+  }
+
   return (
-    <div className="soft-panel min-h-[360px] p-3.5">
+    <div
+      className={`soft-panel min-h-[360px] p-3.5 transition-all duration-300 ${
+        isHighlighted ? "output-panel-highlight" : ""
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-slate-900">{title}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <span className="pill">Generated output</span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={!value.trim()}
+            className="ghost-link"
+            title={copied ? "Copied!" : "Copy"}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
           <button
             type="button"
             onClick={onRewrite}
