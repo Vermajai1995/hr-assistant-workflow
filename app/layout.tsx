@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import Script from "next/script";
 
 import { GlobalLoaderProvider } from "@/components/global-loader";
 import { SiteHeader } from "@/components/site-header";
@@ -30,8 +31,21 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 </Link>
               </div>
             </footer>
+
+            <a
+              href="https://feedback-jai-patel.vercel.app/?from=hr-assistant"
+              target="_blank"
+              rel="noreferrer"
+              className="feedback-fab"
+            >
+              Feedback
+            </a>
           </div>
         </GlobalLoaderProvider>
+        <Script
+          src="https://feedback-jai-patel.vercel.app/?from=hr-assistant"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
