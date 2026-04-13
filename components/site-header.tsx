@@ -20,7 +20,7 @@ export function SiteHeader() {
   return (
     <header className={`site-header ${compact ? "compact" : ""}`}>
       <div className="site-header-inner">
-        <Link href="/" className="brand-lockup">
+        <Link target="_blank" href="https://pateljai.com/" className="brand-lockup">
           <Image
             src="/logo.png"
             alt="Jai Patel logo"
