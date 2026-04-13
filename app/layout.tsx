@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <footer className="site-footer">
             <div className="site-footer-inner">
               <span>Privacy-first recruiter workspace.</span>
-              <Link href="/privacy" className="footer-link">
+              <Link target="_blank" href="/privacy" className="footer-link">
                 Privacy & Terms
               </Link>
             </div>

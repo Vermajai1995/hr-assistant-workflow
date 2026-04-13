@@ -67,12 +67,25 @@ declare global {
   }
 }
 
-const SAMPLE_TRANSCRIPT = `Recruiter: Bhai hume 4 dotnet developers chahiye ek fintech client ke liye
-Client: Location Pune hai, hybrid model rahega
-Recruiter: Budget kya rahega?
-Client: 18-24 LPA, immediate joiners preferred
-Recruiter: Skills kya chahiye?
-Client: .NET, SQL, thoda AWS aur communication`;
+const SAMPLE_TRANSCRIPT = `Recruiter: Hello sir, mai Riya bol rahi hu ABC Consulting se, hum companies ke liye hiring support karte hain. Kya aapke yahan abhi koi openings ya requirements hai?
+Client: Haan ji, mai Gautam bol raha hu XYZ Company se. Abhi hume kuch hiring karni hai.
+Recruiter: Ji sir, kis type ke profiles chahiye aapko?
+Client: Hume 5 junior developers chahiye, fresher bhi chalega. Aur 5 QA test engineers bhi chahiye, unme bhi freshers consider kar sakte hain.
+Recruiter: Okay sir, location kya rahegi aur work mode kaisa hoga? Remote, hybrid ya work from office?
+Client: Location Pune rahegi aur work from office hi hai, hybrid option abhi nahi hai.
+Recruiter: Samajh gaya sir. Experience range kya consider karna hai?
+Client: Freshers preferred hai, lekin 0-1 year tak ka experience bhi chalega.
+Recruiter: Budget kya rahega in roles ke liye?
+Client: Freshers ke liye max 25-30k per month tak ka budget hai.
+Recruiter: Notice period ya joining timeline kya rahegi?
+Client: Immediate joiners preferred hai ya max 15 days notice wale.
+Recruiter: Skills me kya mandatory chahiye?
+Client: Developers ke liye .NET, SQL aur basic API knowledge. QA ke liye manual testing aur thoda automation ka idea hona chahiye.
+Recruiter: Working days aur timings kya rahenge?
+Client: 6 working days rahenge aur timing approx 10 se 6 PM.
+Recruiter: Hiring urgency kitni hai sir?
+Client: Thoda urgent hai, next 2-3 weeks me positions close karni hai.
+Recruiter: Perfect sir, main aapke liye relevant profiles share karti hu shortly.`;
 
 const STORAGE_KEY = "hireflow:sessions:v2";
 const MAX_RECENT_SESSIONS = 8;
